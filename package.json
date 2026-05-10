@@ -1,0 +1,45 @@
+{
+  "name": "sorty2",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/desktop/desktop.js",
+  "scripts": {
+    "copy:frontend": "xcopy /E /I /Y src\\frontend\\build dist\\frontend",
+    "copy:static": "xcopy /E /I /Y src\\static dist\\static",
+    "build:frontend": "cd src/frontend && npm run build",
+    "build:backend": "tsc",
+    "build": "npm run build:frontend && npm run copy:frontend && npm run copy:static && npm run build:backend",
+    "start": "electron .",
+    "dev:frontend": "cd src/frontend && npm run dev",
+    "dev": "npm run build && electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@spotify/web-api-ts-sdk": "^1.2.0",
+    "better-sqlite3": "^12.9.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "electron": "^41.3.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/express-rate-limit": "^5.1.3",
+    "@types/express-session": "^1.19.0",
+    "@types/helmet": "^0.0.48",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}

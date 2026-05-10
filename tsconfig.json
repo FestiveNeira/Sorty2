@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "strict": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "typeRoots": ["./types", "./node_modules/@types"]
+    },
+    "exclude": ["src/frontend", "src/desktop/preload.ts", "node_modules"]
+}
