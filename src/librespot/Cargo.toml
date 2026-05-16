@@ -1,0 +1,43 @@
+[package]
+name = "librespot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+librespot = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0" }
+librespot-audio = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-connect = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-core = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-discovery = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-metadata = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-oauth = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+librespot-playback = { git = "https://github.com/librespot-org/librespot", tag = "v0.8.0", default-features = false }
+
+data-encoding = "2.5"
+env_logger = { version = "0.11.2", default-features = false, features = [
+    "color",
+    "humantime",
+    "auto-color",
+] }
+futures-util = { version = "0.3", default-features = false }
+getopts = "0.2"
+log = "0.4"
+sha1 = "0.10"
+sysinfo = { version = "0.36", default-features = false, features = ["system"] }
+thiserror = "2"
+tokio = { version = "1", features = [
+    "rt",
+    "macros",
+    "signal",
+    "sync",
+    "process",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2.2"
+
+[features]
+default = ["native-tls", "rodio-backend", "with-libmdns"]
+native-tls = ["librespot-core/native-tls", "librespot-oauth/native-tls"]
+rodio-backend = ["librespot-playback/rodio-backend"]
+with-libmdns = ["librespot-discovery/with-libmdns"]
