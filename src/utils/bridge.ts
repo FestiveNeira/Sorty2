@@ -1,9 +1,13 @@
 import * as spotify from './spotify.js';
 import * as db from '../database/database.js';
 import { loadConfig } from '../utils/appconfig.js'
-import type { Playlist, Song, SongWithRating, SongWithPosition, Rating } from '../types/types.js';
+import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
 
 // ---------- SETUP ----------
+
+export function initDatabase() {
+    db.initDatabase();
+}
 
 export async function ensureThemedPlaylist(): Promise<Playlist> {
     const existing = db.getThemedPlaylist();
@@ -376,4 +380,18 @@ export function getSettingsData() {
             ? `spotify:playlist:${masterPlaylist.spotify_playlist_id}`
             : null,
     };
+}
+
+// ---------- TOKENS ----------
+
+export function getSpotifyTokens(): SpotifyTokens | undefined {
+    return db.getSpotifyTokens();
+}
+
+export function saveSpotifyTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
+    db.saveSpotifyTokens(accessToken, refreshToken, expiresIn);
+}
+
+export function isTokenExpired(): boolean {
+    return db.isTokenExpired();
 }

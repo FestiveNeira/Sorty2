@@ -57,8 +57,7 @@ socket.on('reconnect_attempt', (attempt) => {
 // On server connection load the app page
 socket.on('connect', () => {
     console.log('🟢 Connected to server!');
-    //mainWindow?.loadURL(`http://localhost:${activePort}`);
-    mainWindow?.loadURL(`https://open.spotify.com/playlist/67LeHr41yfTbQYxQWjSV5F`);
+    mainWindow?.loadURL(`http://localhost:${activePort}`);
 });
 
 // On disconnect from server load the loading screen

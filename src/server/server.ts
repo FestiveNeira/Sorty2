@@ -1,33 +1,25 @@
+// Imports
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import crypto from 'crypto';
 import express, { Request, Response, NextFunction } from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
+import http from 'http';
 import jwt from 'jsonwebtoken';
-import { getSpotifyTokens, saveSpotifyTokens, isTokenExpired, initDatabase } from '../database/database.js';
-import { initPort, saveConfig, loadConfig } from '../utils/appconfig.js';
-import { getAuthUrl, handleCallback } from '../utils/spotifyauth.js';
 import os from 'os';
-import crypto from 'crypto';
+import { Server } from 'socket.io';
+// Local Imports
+import { initPort, saveConfig, loadConfig } from '../utils/appconfig.js';
 import * as bridge from '../utils/bridge.js';
-
-// Spotify scopes
-const SPOTIFY_SCOPES = [
-    'user-read-playback-state',
-    'user-modify-playback-state',
-    'user-read-currently-playing',
-    'playlist-read-private',
-    'playlist-modify-private',
-    'playlist-modify-public',
-].join(' ');
+import { startLibrespot, stopLibrespot } from '../utils/librespot.js';
+import { getAuthUrl, handleCallback } from '../utils/spotifyauth.js';
 
 // Get open valid port
 const port = await initPort();
 
 // Fix/create database if anything is broken or missing
-initDatabase();
+bridge.initDatabase();
 
 // Config settings
 const config = loadConfig();
@@ -36,10 +28,10 @@ let externalAccessEnabled = false;
 // Create the app object
 const app = express();
 
-// Generate HTTP Server
+// Generate HTTP server
 const httpServer = http.createServer(app);
 
-// Create Socket Manager
+// Create socket manager
 const io = new Server(httpServer, {
     cors: {
         origin: '*',
@@ -47,6 +39,24 @@ const io = new Server(httpServer, {
     }
 });
 
+// Start librespot if already authenticated
+const existingTokens = bridge.getSpotifyTokens();
+if (existingTokens && !bridge.isTokenExpired()) {
+    startLibrespot(`Sorty — ${os.hostname()}`, existingTokens.access_token)
+        .catch(console.error);
+} else {
+    console.log('No valid Spotify tokens found, librespot will start after authentication');
+}
+
+// Rate limit middleware
+app.use((req, res, next) => {
+    const isLocal = req.ip === '127.0.0.1' || req.ip === '::1';
+    if (isLocal) return next(); // skip rate limiting for local
+    next();
+}, rateLimit({ windowMs: 5 * 60 * 1000, max: 100 }));
+app.use(cookieParser());
+app.use(cors());
+app.use(express.json());
 // Security middleware todo find out what actually is needed and remove unneeded
 app.use(helmet({
     contentSecurityPolicy: {
@@ -59,22 +69,6 @@ app.use(helmet({
         }
     }
 }));
-
-app.use((req, res, next) => {
-    const isLocal = req.ip === '127.0.0.1' || req.ip === '::1';
-    if (isLocal) return next(); // skip rate limiting for local
-    next();
-}, rateLimit({ windowMs: 5 * 60 * 1000, max: 100 }));
-app.use(cors());
-app.use(express.json());
-app.use(cookieParser());
-
-//test remove
-app.use((req, _res, next) => {
-    console.log("➡️ REQUEST:", req.method, req.url);
-    next();
-});
-
 // Auth middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
     const isLocal = req.ip === '127.0.0.1' || req.ip === '::1';
@@ -98,7 +92,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     }
 });
 
-// API Routes
+// ---------- API Routes ----------
+
 app.post('/api/login', (req: Request, res: Response) => {
     if (req.body.token === config.secretToken) {
         const token = jwt.sign(
@@ -148,18 +143,24 @@ app.get('/api/spotify/callback', async (req: Request, res: Response) => {
     }
 
     await handleCallback(code, config.spotifyClientId);
+
+    // Start librespot with the new token
+    const tokens = bridge.getSpotifyTokens();
+    if (tokens) {
+        await startLibrespot(`Sorty — ${os.hostname()}`, tokens.access_token);
+    }
+
     res.redirect('?spotify=success');
 });
 
 app.get('/api/spotify/token', (req: Request, res: Response) => {
     try {
-        const tokens = getSpotifyTokens();
+        const tokens = bridge.getSpotifyTokens();
         if (!tokens) return res.status(401).json({ error: 'Not authenticated' });
         
         // Refresh if expired before sending
-        if (isTokenExpired()) {
+        if (bridge.isTokenExpired()) {
             // Token will auto refresh on next spotify call
-            // For now return what we have, SDK will handle expiry
         }
         
         res.json({ accessToken: tokens.access_token });
@@ -581,4 +582,14 @@ app.get('/{*path}', (req: Request, res: Response) => {
 // Start server
 httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${port}`);
+});
+
+// Cleanup
+process.on('exit', () => {
+    stopLibrespot();
+});
+
+process.on('SIGINT', () => {
+    stopLibrespot();
+    process.exit(0);
 });

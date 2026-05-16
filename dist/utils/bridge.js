@@ -2,6 +2,9 @@ import * as spotify from './spotify.js';
 import * as db from '../database/database.js';
 import { loadConfig } from '../utils/appconfig.js';
 // ---------- SETUP ----------
+export function initDatabase() {
+    db.initDatabase();
+}
 export async function ensureThemedPlaylist() {
     const existing = db.getThemedPlaylist();
     if (existing)
@@ -265,4 +268,14 @@ export function getSettingsData() {
             ? `spotify:playlist:${masterPlaylist.spotify_playlist_id}`
             : null,
     };
+}
+// ---------- TOKENS ----------
+export function getSpotifyTokens() {
+    return db.getSpotifyTokens();
+}
+export function saveSpotifyTokens(accessToken, refreshToken, expiresIn) {
+    db.saveSpotifyTokens(accessToken, refreshToken, expiresIn);
+}
+export function isTokenExpired() {
+    return db.isTokenExpired();
 }
