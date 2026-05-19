@@ -1,3 +1,9 @@
+/*
+This file is the backend server file.
+It exposes all the app's API endpoints and is the main layer of communication between different parts of the app.
+It is a place for data transfer not transformation!
+*/
+
 // Imports
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -12,18 +18,17 @@ import { Server } from 'socket.io';
 // Local Imports
 import { initPort, saveConfig, loadConfig } from '../utils/appconfig.js';
 import * as bridge from '../utils/bridge.js';
-import { startLibrespot, stopLibrespot } from '../utils/librespot.js';
-import { getAuthUrl, handleCallback } from '../utils/spotifyauth.js';
+import { startLibrespot, stopLibrespot } from '../player/librespot.js';
+import { getAuthUrl, handleCallback } from '../spotify/spotifyauth.js';
 
+//Startup functions
 // Get open valid port
 const port = await initPort();
-
-// Fix/create database if anything is broken or missing
-bridge.initDatabase();
-
 // Config settings
 const config = loadConfig();
 let externalAccessEnabled = false;
+// Fix/create database if anything is broken or missing
+bridge.initDatabase();
 
 // Create the app object
 const app = express();
@@ -39,13 +44,82 @@ const io = new Server(httpServer, {
     }
 });
 
+// Event Emission
+const clients = new Set<Response>();
+export function emitDeviceConnected() {
+    for (const client of clients) {
+        client.write('event: deviceConnected\ndata: {}\n\n');
+    }
+}
+export function emitPlaybackStateUpdate() {
+    for (const client of clients) {
+        client.write('event: playbackStateUpdate\ndata: {}\n\n');
+    }
+}
+
 // Start librespot if already authenticated
 const existingTokens = bridge.getSpotifyTokens();
 if (existingTokens && !bridge.isTokenExpired()) {
     startLibrespot(`Sorty — ${os.hostname()}`, existingTokens.access_token)
+        .then(() => connectToLibrespot())
         .catch(console.error);
 } else {
     console.log('No valid Spotify tokens found, librespot will start after authentication');
+}
+
+async function connectToLibrespot(maxAttempts = 10, delayMs = 2000): Promise<void> {
+    const deviceName = `Sorty — ${os.hostname()}`;
+
+    for (let i = 0; i < maxAttempts; i++) {
+        console.log(`Waiting for librespot device... attempt ${i + 1}/${maxAttempts}`);
+
+        const devices = await bridge.getDevices();
+        const librespotDevice = devices.find((d: any) => 
+            d.name === deviceName
+        );
+
+        if (librespotDevice) {
+            console.log(`Found librespot device: ${librespotDevice.id}`);
+            await bridge.connectDevice(librespotDevice.id)
+            emitDeviceConnected();
+            saveConfig({ ...loadConfig(), lastDeviceId: librespotDevice.id });
+            console.log('Connected to librespot device');
+            return;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+
+    console.error('Could not find librespot device after', maxAttempts, 'attempts');
+}
+
+// Funtions for processing errors and retrying logic
+async function handleError (e: any, func?: () => Promise<any>): Promise<void> {
+    // Print the error
+    console.error(`Error ${e.status}: ${e.message}`);
+    // If error was because no active device was found, then try to reconnect
+    if (e.reason == 'NO_ACTIVE_DEVICE') {
+        let success = await reconnectDevice();
+        console.log(`little ${success}`);
+        if (success && func) {
+            try {
+                // After reconnecting try to rerun the function that threw the error
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                await func();
+                emitPlaybackStateUpdate();
+            }
+            catch (e: any) {
+                console.error(`Error ${e.status}: ${e.message}`);
+            }
+        }
+    }
+} 
+
+async function reconnectDevice(): Promise<boolean> {
+    let status = await bridge.connectDevice();
+    if (status == 404) console.error('Error 404: No playback devices found.');
+    if (status == 204) return true;
+    return false;
 }
 
 // Rate limit middleware
@@ -93,7 +167,27 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ---------- API Routes ----------
+// App Events
+app.get('/api/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
+    clients.add(res);
+    req.on('close', () => clients.delete(res));
+});
+// Librespot Events
+app.post('/api/librespot-event', (req: Request, res: Response) => {
+    const { event } = req.body;
+    console.log('librespot event:', event);
+    if (event === 'session_disconnected' || event === 'inactive') {
+        connectToLibrespot();
+    }
+    res.json({ success: true });
+});
+
+// Login
 app.post('/api/login', (req: Request, res: Response) => {
     if (req.body.token === config.secretToken) {
         const token = jwt.sign(
@@ -123,7 +217,7 @@ app.get('/api/external-access', (req: Request, res: Response) => {
 
 app.post('/api/external-access/toggle', (req: Request, res: Response) => {
     externalAccessEnabled = !externalAccessEnabled;
-    io.emit('externalAccessUpdate', externalAccessEnabled);
+    emitPlaybackStateUpdate();
     res.json({ externalAccessEnabled });
 });
 
@@ -148,6 +242,7 @@ app.get('/api/spotify/callback', async (req: Request, res: Response) => {
     const tokens = bridge.getSpotifyTokens();
     if (tokens) {
         await startLibrespot(`Sorty — ${os.hostname()}`, tokens.access_token);
+        await connectToLibrespot();
     }
 
     res.redirect('?spotify=success');
@@ -185,20 +280,14 @@ app.use(express.static('dist/frontend'));
 
 // ---------- PLAYBACK ----------
 
-// Helper to fetch and broadcast playback state todo may not be necessary delete?
-async function broadcastPlaybackState() {
-    const state = await bridge.getPlaybackState();
-    if (state) io.emit('trackUpdate', state);
-    return state;
-}
-
-// Get initial state on page load todo may not be used delete?
+// Get player state
 app.get('/api/playback', async (req: Request, res: Response) => {
     try {
         const state = await bridge.getPlaybackState();
         res.json(state);
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.getPlaybackState());
     }
 });
 
@@ -208,6 +297,7 @@ app.get('/api/queue', async (req: Request, res: Response) => {
         res.json(queue);
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.getQueue());
     }
 });
 
@@ -217,94 +307,106 @@ app.get('/api/devices', async (req: Request, res: Response) => {
         res.json(devices);
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.getDevices());
     }
 });
 
 app.post('/api/devices/connect', async (req: Request, res: Response) => {
+    const deviceId = req.body ?? config.lastDeviceId;
     try {
-        let { deviceId } = req.body;
-        if (!deviceId) deviceId = config.lastDeviceId;
         const connected = await bridge.connectDevice(deviceId);
-        config.lastDeviceId = deviceId;
-        if (connected) saveConfig(config);
+        console.log(connected); // test
+        if (connected) {
+            config.lastDeviceId = deviceId;
+            saveConfig(config);
+            emitDeviceConnected();
+        }
         res.json({ connected });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.connectDevice(deviceId));
     }
 });
 
 app.post('/api/playback/volume', async (req: Request, res: Response) => {
+    const { volume } = req.body;
     try {
-        const { volume } = req.body;
         await bridge.setVolume(volume);
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.setVolume(volume));
     }
 });
 
 app.post('/api/playback/play', async (req: Request, res: Response) => {
     try {
         await bridge.play();
-        await broadcastPlaybackState();
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        console.log("play start");
+        await handleError(e, () => bridge.play());
+        console.log("play end");
     }
 });
 
 app.post('/api/playback/:uri/play', async (req: Request, res: Response) => {
+    const uri = req.params.uri as string;
     try {
-        const uri = req.params.uri as string;
         await bridge.play(uri);
+        emitPlaybackStateUpdate();
         res.json({ uri });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.play(uri));
     }
 });
 
 app.post('/api/playback/pause', async (req: Request, res: Response) => {
     try {
         await bridge.pause();
-        await broadcastPlaybackState();
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.pause());
     }
 });
 
 app.post('/api/playback/next', async (req: Request, res: Response) => {
     try {
         await bridge.skipNext();
-        // Small delay to let Spotify update before querying
-        await new Promise(resolve => setTimeout(resolve, 500));
-        await broadcastPlaybackState();
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
-        console.log(e);
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.skipNext());
     }
 });
 
 app.post('/api/playback/previous', async (req: Request, res: Response) => {
     try {
         await bridge.skipPrevious();
-        await new Promise(resolve => setTimeout(resolve, 500));
-        await broadcastPlaybackState();
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.skipPrevious());
     }
 });
 
 app.post('/api/playback/seek', async (req: Request, res: Response) => {
+    const { positionMs } = req.body;
     try {
-        const { positionMs } = req.body;
         await bridge.seekToPosition(positionMs);
-        await broadcastPlaybackState();
+        emitPlaybackStateUpdate();
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+        await handleError(e, () => bridge.seekToPosition(positionMs))
     }
 });
 
@@ -562,7 +664,8 @@ app.post('/api/settings/master-playlist', async (req: Request, res: Response) =>
 app.post('/api/external-access/toggle', (req: Request, res: Response) => {
     try {
         externalAccessEnabled = !externalAccessEnabled;
-        io.emit('externalAccessUpdate', externalAccessEnabled);
+        // todo fix external acces stuff
+        // io.emit('externalAccessUpdate', externalAccessEnabled);
         res.json({ externalAccessEnabled });
     } catch (e: any) {
         res.status(500).json({ error: e.message });

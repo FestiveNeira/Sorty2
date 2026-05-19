@@ -1,3 +1,8 @@
+/*
+This file is the app's entry point and also the main script for creating the electron app window.
+It mostly just manages the desktop app windows but it does also launch the backend server since it's the entry point.
+*/
+
 import { app, globalShortcut, BrowserWindow, ipcMain } from 'electron';
 import { type Socket, io } from 'socket.io-client';
 import { activePort, loadConfig, saveConfig } from '../utils/appconfig.js'; // still need to implement data saving (only default settings available rn)

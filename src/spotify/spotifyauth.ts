@@ -1,8 +1,27 @@
-import net from 'net';
-import { generateCodeVerifier, generateCodeChallenge } from './pkce.js';
 import { saveSpotifyTokens } from '../database/database.js';
-import { activePort } from './appconfig.js';
+import { activePort } from '../utils/appconfig.js';
 
+// PKCE functions
+export function generateCodeVerifier(length = 128) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+  let verifier = '';
+  for (let i = 0; i < length; i++) {
+    verifier += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return verifier;
+}
+
+export async function generateCodeChallenge(codeVerifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(codeVerifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// Auth Flow
 const SPOTIFY_SCOPES = [
     'streaming',
     'user-read-email',
@@ -15,15 +34,6 @@ const SPOTIFY_SCOPES = [
     'playlist-modify-public',
 ].join(' ');
 
-function isPortAvailable(port: number): Promise<boolean> {
-    return new Promise(resolve => {
-        const tester = net.createServer()
-            .once('error', () => resolve(false))
-            .once('listening', () => tester.close(() => resolve(true)))
-            .listen(port, '127.0.0.1');
-    });
-}
-
 export function getRedirectUri() {
     return `http://127.0.0.1:${activePort}/api/spotify/callback`;
 }
@@ -35,8 +45,6 @@ export async function getAuthUrl(clientId: string): Promise<string> {
 
     // Store verifier so callback can use it
     currentVerifier = verifier;
-
-    console.log('Redirect URI:', getRedirectUri()); // testing
 
     const params = new URLSearchParams({
         client_id: clientId,
@@ -53,8 +61,6 @@ export async function getAuthUrl(clientId: string): Promise<string> {
 // Handles the callback from Spotify
 export async function handleCallback(code: string, clientId: string): Promise<void> {
     if (!currentVerifier) throw new Error('No code verifier found');
-
-    console.log('Redirect URI:', getRedirectUri()); // testing
 
     const body = new URLSearchParams({
         grant_type: 'authorization_code',

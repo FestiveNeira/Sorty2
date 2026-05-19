@@ -1,4 +1,9 @@
-import * as spotify from './spotify.js';
+/*
+This file is designed to have a layer of communication between spotify's API and the local database.
+It exists to keep any data manipulation in a single layer and out of server.ts
+*/
+
+import * as spotify from '../spotify/spotify.js';
 import * as db from '../database/database.js';
 import { loadConfig } from '../utils/appconfig.js'
 import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
@@ -45,15 +50,14 @@ export async function getDevices() {
     return data?.devices ?? [];
 }
 
-export async function connectDevice(id: string): Promise<boolean> {
+export async function connectDevice(id?: string): Promise<number> {
     const devices = await getDevices();
-    if (devices.length === 0) return false;
+    if (devices.length === 0) return 404;
 
     const preferred = devices.find((d: any) => d.id === id);
     const device = preferred ?? devices[0];
-
-    await spotify.transferPlayback(device.id);
-    return true;
+    
+    return await spotify.transferPlayback(device.id);
 }
 
 export async function setVolume(volumePercent: number) {

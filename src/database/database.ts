@@ -334,6 +334,8 @@ export function getSpotifyTokens(): SpotifyTokens | undefined {
 }
 
 export function saveSpotifyTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
+    console.log('tokens expire in ' + Math.floor(expiresIn/60) + ':' + expiresIn%60 + '.');
+    setTimeout(() => console.log('Spotify tokens expired'), expiresIn * 1000); // testing
     const expiresAt = Date.now() + expiresIn * 1000;
     db.prepare(`
         INSERT INTO spotify_tokens (id, access_token, refresh_token, expires_at)

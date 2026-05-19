@@ -1,6 +1,6 @@
 import { error } from 'console';
 import { getSpotifyTokens, saveSpotifyTokens, isTokenExpired } from '../database/database.js';
-import { loadConfig } from './appconfig.js';
+import { loadConfig } from '../utils/appconfig.js';
 
 const config = loadConfig();
 const SPOTIFY_API = 'https://api.spotify.com/v1';
@@ -38,7 +38,7 @@ async function getAccessToken(): Promise<string> {
 }
 
 // General function to build SpotifyAPI requests and recieve formatted responses. isvoid determines if the request expects a response
-async function spotifyFetch(endpoint: string, options: RequestInit = {}, isvoid: boolean = false) {
+async function spotifyFetch(endpoint: string, options: RequestInit = {}) {
     const token = await getAccessToken();
 
     const res = await fetch(`${SPOTIFY_API}${endpoint}`, {
@@ -50,10 +50,13 @@ async function spotifyFetch(endpoint: string, options: RequestInit = {}, isvoid:
         }
     });
 
+    // Error
+    if (!res.ok) throw (await res.json()).error;
     if (res.status == 429) throw new Error(`${res.status} - Spotify Rate Limit: ${res.statusText}`);
-    if (!res.ok) throw new Error(`Spotify API error: ${res.status} ${res.statusText}`);
-    if (!isvoid) return res.json();
-    return;
+    // Return
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) return res.status;
+    return await res.json();
 }
 
 // ---------- USER ----------
@@ -98,23 +101,23 @@ export async function play(contextUri?: string, uris?: string[]) {
     return spotifyFetch('/me/player/play', {
         method: 'PUT',
         body: JSON.stringify(body)
-    }, true);
+    });
 }
 
 export async function pause() {
-    return spotifyFetch('/me/player/pause', { method: 'PUT' }, true);
+    return spotifyFetch('/me/player/pause', { method: 'PUT' });
 }
 
 export async function skipNext() {
-    return spotifyFetch('/me/player/next', { method: 'POST' }, true);
+    return spotifyFetch('/me/player/next', { method: 'POST' });
 }
 
 export async function skipPrevious() {
-    return spotifyFetch('/me/player/previous', { method: 'POST' }, true);
+    return spotifyFetch('/me/player/previous', { method: 'POST' });
 }
 
 export async function seekToPosition(positionMs: number) {
-    return spotifyFetch(`/me/player/seek?position_ms=${positionMs}`, { method: 'PUT' }, true);
+    return spotifyFetch(`/me/player/seek?position_ms=${positionMs}`, { method: 'PUT' });
 }
 
 export async function getCurrentTrack() {

@@ -1,0 +1,11 @@
+[package]
+name = "onevent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ureq = "2"
+
+[[bin]]
+name = "onevent"
+path = "onevent.rs"

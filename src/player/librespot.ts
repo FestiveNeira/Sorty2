@@ -1,3 +1,8 @@
+/*
+This file manages the librespot player process
+Librespot is this app's built in spotify device so that users can listen without having spotify open in another window
+ */
+
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -6,7 +11,12 @@ let librespotProcess: ChildProcess | null = null;
 
 function getBinaryPath(): string {
     const binary = process.platform === 'win32' ? 'librespot.exe' : 'librespot';
-    return path.join(process.cwd(), 'dist/librespot', binary);
+    return path.join(process.cwd(), 'dist/player', binary);
+}
+
+function getEventScriptPath(): string {
+    const binary = process.platform === 'win32' ? 'onevent.exe' : 'onevent';
+    return path.join(process.cwd(), 'dist/player', binary);
 }
 
 export async function startLibrespot(deviceName: string, accessToken: string): Promise<void> {
@@ -27,6 +37,9 @@ export async function startLibrespot(deviceName: string, accessToken: string): P
         '--bitrate', '320',
         '--device-type', 'computer',
         '--access-token', accessToken,
+        '--backend', 'rodio',
+        '--disable-audio-cache',
+        '--onevent', getEventScriptPath(),
     ], {
         stdio: 'pipe'
     });

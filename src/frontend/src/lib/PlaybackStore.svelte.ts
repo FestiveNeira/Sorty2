@@ -1,3 +1,5 @@
+// This file contains the playback state object for use in the frontend to keep a reactive spotify state.
+
 import type { PlaybackState, TrackItem, Device } from '@spotify/web-api-ts-sdk';
 
 export class PlaybackStore {

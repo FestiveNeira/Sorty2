@@ -1,31 +1,19 @@
+<!--
+This is the main frontend file and the page that users will most often interact with.
+It contains all logic for the app to function and can communicate with the server directly via http and websockets.Page
+todo: rip css to a different file
+todo: build overlay
+todo: rip the queue logic to PlaybackStore.svelte
+todo: sort everything in all files, code is a bit disorganized
+-->
+
 <script lang="ts">
     import { PlaybackStore } from '$lib/PlaybackStore.svelte';
-    import type { PlaybackState, Track, Episode, TrackItem } from '@spotify/web-api-ts-sdk';
+    import type { Track, Episode, TrackItem } from '@spotify/web-api-ts-sdk';
     import { onMount, onDestroy } from 'svelte';
     import type { Theme, Playlist, SongWithRating } from '../../../types/types';
 
-    /*
-    On startup get the queue, if the queue changes update it
-    When a skip action is taken use the queue data to update the UI, and send an API request
-    After a delay query spotify to get the player state and update the UI to keep it synced
-
-    Pause action pause local timer and send pause request
-    Play action play local timer and send play request
-
-    Ratings are simple
-
-    Play on theme or playlist, build in Themed Playlist then play that
-    Update queue whenever the themed playlist updates
-
-    todo play with collapse button size/formatting
-
-    todo build overlay
-
-    todo sort everything in all files, code is a bit disorganized
-    */ 
-
     // ---------- TYPES ----------
-
     interface ThemeRating {
         themeId: number;
         rating: number;
@@ -34,6 +22,7 @@
     type SidebarView = 'themed' | 'playlist' | 'theme' | 'settings';
  
     // ---------- STATE ----------
+    let events: EventSource;
 
     // There is a moment on startup where playbackstate will not be populated, this should not cause any errors and should rectify quickly
     let playbackState = new PlaybackStore();
@@ -93,20 +82,28 @@
         await loadThemes();
         await loadPlaylists();
         await loadThemedPlaylistSongs();
-        // Load Playback Data
-        await loadPlaybackState();
         await loadBuilderPreview();
         // Update When Focused
         document.addEventListener('visibilitychange', handleVisibilityChange);
         // Format Window
         window.addEventListener('resize', handleResize);
         setTimeout(handleResize, 500);
+
+        // Event triggers
+        events = new EventSource(`/api/events`);
+        events.addEventListener('deviceConnected', () => {
+            setTimeout(() => loadPlaybackState(true), loadStateDelay);
+        });
+        events.addEventListener('playbackStateUpdate', () => {
+            setTimeout(() => loadPlaybackState(), loadStateDelay);
+        });
     });
  
     onDestroy(() => {
         clearInterval(progressInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('resize', handleResize);
+        events.close();
     });
  
     // ---------- EFFECTS ----------
@@ -140,7 +137,7 @@
         }
     }
 
-    async function loadPlaybackState(queueChanged: boolean = false) {
+    async function loadPlaybackState(queueChanged: boolean = false, attempts = 5) {
         const res = await fetch('/api/playback');
         if (!res.ok) {
             // Try to connect a device
@@ -157,8 +154,11 @@
             playbackState.raw = data;
             startProgressTimer();
             await loadCurrentTrackRatings();
+            loadQueue(queueChanged);
         }
-        loadQueue(queueChanged);
+        else if (attempts > 1) {
+            setTimeout(() => loadPlaybackState(queueChanged, attempts - 1), loadStateDelay);
+        }
     }
 
     async function loadQueue(forceNew?: boolean) {
