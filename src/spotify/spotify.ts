@@ -83,10 +83,10 @@ export async function getDevices() {
     return spotifyFetch('/me/player/devices');
 }
 
-export async function transferPlayback(deviceId: string, startPlay: boolean = false) {
+export async function transferPlayback(deviceId: string): Promise<number> {
     return spotifyFetch('/me/player', {
         method: 'PUT',
-        body: JSON.stringify({ device_ids: [deviceId], play: startPlay })
+        body: JSON.stringify({ device_ids: [deviceId] })
     });
 }
 

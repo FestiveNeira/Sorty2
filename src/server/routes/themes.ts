@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import * as bridge from '../bridge.js';
 import { handleError } from '../errors.js';
-import { io } from '../socket.js';
 
 import { initPort, saveConfig, loadConfig } from '../../utils/appconfig.js';
 let config = loadConfig();
@@ -66,7 +65,6 @@ router.post('/:id/play', async (req: Request, res: Response) => {
         const id = parseInt(req.params.id as string);
         const uri = await bridge.updateThemedPlaylist(id);
         await bridge.play(uri);
-        io.emit('playbackStateUpdate', true);
         res.json({ uri });
     } catch (e: any) {
         res.status(500).json({ error: e.message });

@@ -1,0 +1,8 @@
+clean server.ts
+clean bridge.ts
+implement overlay
+implement media overlay
+reconsider autorating
+fix master playlist appearance
+rip css
+make sure everything is explicitly typed, especially function return values

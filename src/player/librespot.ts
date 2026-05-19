@@ -19,44 +19,49 @@ function getEventScriptPath(): string {
     return path.join(process.cwd(), 'dist/player', binary);
 }
 
-export async function startLibrespot(deviceName: string, accessToken: string): Promise<void> {
-    const binaryPath = getBinaryPath();
+export function startLibrespot(deviceName: string, accessToken: string): Promise<void> {
+    return new Promise((resolve) => {
+        const binaryPath = getBinaryPath();
 
-    if (!fs.existsSync(binaryPath)) {
-        console.error('librespot binary not found at:', binaryPath);
-        return;
-    }
+        if (!fs.existsSync(binaryPath)) {
+            console.error('librespot binary not found at:', binaryPath);
+            resolve();
+            return;
+        }
 
-    // Kill any existing instance before starting a new one
-    stopLibrespot();
+        stopLibrespot();
+        console.log('Starting librespot...');
 
-    console.log('Starting librespot...');
+        librespotProcess = spawn(binaryPath, [
+            '--name', deviceName,
+            '--bitrate', '320',
+            '--device-type', 'computer',
+            '--access-token', accessToken,
+            '--backend', 'rodio',
+            '--disable-audio-cache',
+            '--onevent', getEventScriptPath(),
+        ], { stdio: 'pipe' });
 
-    librespotProcess = spawn(binaryPath, [
-        '--name', deviceName,
-        '--bitrate', '320',
-        '--device-type', 'computer',
-        '--access-token', accessToken,
-        '--backend', 'rodio',
-        '--disable-audio-cache',
-        '--onevent', getEventScriptPath(),
-    ], {
-        stdio: 'pipe'
-    });
+        librespotProcess.stdout?.on('data', (data: Buffer) => {
+            console.log('librespot:', data.toString().trim());
+        });
 
-    librespotProcess.stdout?.on('data', (data: Buffer) => {
-        console.log('librespot:', data.toString().trim());
-    });
+        librespotProcess.stderr?.on('data', (data: Buffer) => {
+            const line = data.toString().trim();
+            console.error('librespot:', line);
+            if (line.includes('Authenticated as')) {
+                resolve();
+            }
+        });
 
-    librespotProcess.stderr?.on('data', (data: Buffer) => {
-        console.error('librespot:', data.toString().trim());
-    });
-
-    librespotProcess.on('close', (code) => {
-        console.log(`librespot exited with code ${code}`);
-        librespotProcess = null;
+        librespotProcess.on('close', (code) => {
+            console.log(`librespot exited with code ${code}`);
+            librespotProcess = null;
+            resolve();
+        });
     });
 }
+
 
 export function stopLibrespot(): void {
     if (librespotProcess) {

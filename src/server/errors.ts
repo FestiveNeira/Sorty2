@@ -7,7 +7,6 @@ export async function handleError(e: any, func?: () => Promise<any>): Promise<vo
     // If error was because no active device was found, then try to reconnect
     if (e.reason == 'NO_ACTIVE_DEVICE') {
         let success = await reconnectDevice();
-        console.log(`little ${success}`);
         if (success && func) {
             try {
                 // After reconnecting try to rerun the function that threw the error
@@ -23,6 +22,7 @@ export async function handleError(e: any, func?: () => Promise<any>): Promise<vo
 
 async function reconnectDevice(): Promise<boolean> {
     let status = await bridge.connectDevice();
+    console.log(status);
     if (status == 404) console.error('Error 404: No playback devices found.');
     if (status == 204) return true;
     return false;

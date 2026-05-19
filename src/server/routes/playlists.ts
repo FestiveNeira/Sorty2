@@ -1,12 +1,40 @@
 import { Router, Request, Response } from 'express';
 import * as bridge from '../bridge.js';
 import { handleError } from '../errors.js';
-import { io } from '../socket.js';
 
 import { initPort, saveConfig, loadConfig } from '../../utils/appconfig.js';
 let config = loadConfig();
 
 const router = Router();
+
+// Themed Playlist
+
+router.get('/themed/songs', async (req: Request, res: Response) => {
+    try {
+        const songs = bridge.getThemedPlaylistSongs();
+        res.json(songs);
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.post('/themed/update', async (req: Request, res: Response) => {
+    try {
+        const { themeId, ratingMin, ratingMax, sort, limitCount } = req.body;
+        if (!themeId) return res.status(400).json({ error: 'themeId is required' });
+
+        const uri = await bridge.updateThemedPlaylist(
+            themeId,
+            ratingMin ?? null,
+            ratingMax ?? null,
+            sort ?? 'top',
+            limitCount ?? null
+        );
+        res.json({ uri });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Playlist Endpoints
 
@@ -84,35 +112,6 @@ router.get('/preview', async (req: Request, res: Response) => {
             limitCount ? parseInt(limitCount) : null
         );
         res.json(songs);
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Themed Playlist
-
-router.get('/themed/songs', async (req: Request, res: Response) => {
-    try {
-        const songs = bridge.getThemedPlaylistSongs();
-        res.json(songs);
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-router.post('/themed/update', async (req: Request, res: Response) => {
-    try {
-        const { themeId, ratingMin, ratingMax, sort, limitCount } = req.body;
-        if (!themeId) return res.status(400).json({ error: 'themeId is required' });
-
-        const uri = await bridge.updateThemedPlaylist(
-            themeId,
-            ratingMin ?? null,
-            ratingMax ?? null,
-            sort ?? 'top',
-            limitCount ?? null
-        );
-        res.json({ uri });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
     }

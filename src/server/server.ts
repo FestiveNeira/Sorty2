@@ -46,7 +46,7 @@ initSocket(httpServer);
 const existingTokens = bridge.getSpotifyTokens();
 if (existingTokens && !bridge.isTokenExpired()) {
     startLibrespot(deviceName, existingTokens.access_token)
-        .then(() => bridge.connectDevice(deviceName))
+        .then(() => bridge.connectDevice(deviceName, true))
         .catch(console.error);
 } else {
     console.log('No valid Spotify tokens found, librespot will start after authentication');
@@ -106,10 +106,6 @@ setupRoutes(app);
 app.post('/api/librespot-event', (req: Request, res: Response) => {
     const { event } = req.body;
     console.log('librespot event:', event);
-    if (event === 'session_disconnected' || event === 'inactive') {
-        bridge.connectDevice(deviceName, true);
-    }
-    res.json({ success: true });
 });
 
 app.post('/api/login', (req: Request, res: Response) => {
@@ -153,8 +149,9 @@ app.get('/api/spotify/callback', async (req: Request, res: Response) => {
     // Start librespot with the new token
     const tokens = bridge.getSpotifyTokens();
     if (tokens) {
-        await startLibrespot(deviceName, tokens.access_token);
-        bridge.connectDevice(deviceName, true);
+        startLibrespot(deviceName, tokens.access_token)
+            .then(() => bridge.connectDevice(deviceName, true))
+            .catch(console.error);
     }
 
     res.redirect('?spotify=success');

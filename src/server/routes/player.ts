@@ -41,14 +41,12 @@ router.get('/devices', async (req: Request, res: Response) => {
 });
 
 router.post('/devices/connect', async (req: Request, res: Response) => {
-    const deviceId = req.body ?? config.lastDeviceId;
+    const deviceId = req.body.deviceId ?? config.lastDeviceId;
     try {
         const connected = await bridge.connectDevice(deviceId);
-        console.log(connected); // test
         if (connected) {
             config.lastDeviceId = deviceId;
             saveConfig(config);
-            io.emit('playbackStateUpdate', true);
         }
         res.json({ connected });
     } catch (e: any) {
@@ -61,7 +59,6 @@ router.post('/volume', async (req: Request, res: Response) => {
     const { volume } = req.body;
     try {
         await bridge.setVolume(volume);
-        io.emit('playbackStateUpdate');
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
@@ -73,20 +70,7 @@ router.post('/play', async (req: Request, res: Response) => {
     const uri = req.body.uri as string;
     try {
         await bridge.play(uri);
-        io.emit('playbackStateUpdate', !!uri);
         res.json({ success: true });
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-        await handleError(e, () => bridge.play(uri));
-    }
-});
-
-router.post('/:uri/play', async (req: Request, res: Response) => {
-    const uri = req.params.uri as string;
-    try {
-        await bridge.play(uri);
-        io.emit('playbackStateUpdate', true);
-        res.json({ uri });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
         await handleError(e, () => bridge.play(uri));
@@ -96,7 +80,6 @@ router.post('/:uri/play', async (req: Request, res: Response) => {
 router.post('/pause', async (req: Request, res: Response) => {
     try {
         await bridge.pause();
-        io.emit('playbackStateUpdate');
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
@@ -107,7 +90,6 @@ router.post('/pause', async (req: Request, res: Response) => {
 router.post('/next', async (req: Request, res: Response) => {
     try {
         await bridge.skipNext();
-        io.emit('playbackStateUpdate');
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
@@ -118,7 +100,6 @@ router.post('/next', async (req: Request, res: Response) => {
 router.post('/previous', async (req: Request, res: Response) => {
     try {
         await bridge.skipPrevious();
-        io.emit('playbackStateUpdate');
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
@@ -130,7 +111,6 @@ router.post('/seek', async (req: Request, res: Response) => {
     const { positionMs } = req.body;
     try {
         await bridge.seekToPosition(positionMs);
-        io.emit('playbackStateUpdate');
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });

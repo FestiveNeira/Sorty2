@@ -7,6 +7,7 @@ import * as spotify from '../spotify/spotify.js';
 import * as db from '../database/database.js';
 import { loadConfig } from '../utils/appconfig.js'
 import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
+import { io } from './socket.js';
 
 // ---------- SETUP ----------
 
@@ -51,18 +52,34 @@ export async function getDevices() {
 }
 
 export async function connectDevice(id?: string, force: boolean = false): Promise<number> {
-    const devices = await getDevices();
-    if (devices.length === 0) return 404;
+    for (let i = 0; i < 5; i++) {
+        const devices = await getDevices();
+        console.log('Connecting Device: Attempt ' + i);
+        
+        if (devices.length > 0) {
+            let device = devices.find((d: any) => d.id === id || d.name === id);
+            if (!force) device = device ?? devices[0];
+            
+            if (device) {
+                console.log("Connecting to " + device.id);
+                const status = await spotify.transferPlayback(device.id)
+                io.emit('playbackStateUpdate', true);
+                return status;
+            }
+        }
 
-    let device = devices.find((d: any) => d.id === id || d.name === id);
-    if (!force) device = device ?? devices[0];
-    
-    if (!device) return 404;
-    return await spotify.transferPlayback(device.id);
+        if (i < 5) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    return 404;
 }
 
 export async function setVolume(volumePercent: number) {
-    return spotify.setVolume(volumePercent);
+    const status = await spotify.setVolume(volumePercent);
+    io.emit('playbackStateUpdate');
+    return status;
 }
 
 export async function loadSavedPlaylist(playlistId: number): Promise<string> {
@@ -91,7 +108,7 @@ export async function loadSavedPlaylist(playlistId: number): Promise<string> {
     return `spotify:playlist:${themedPlaylist.spotify_playlist_id}`;
 }
 
-    /*
+    /*//this will need an io event if it's used
 export async function playSavedPlaylist(playlistId: number) {
     const playlist = db.getPlaylists().find((p: any) => p.id === playlistId);
     if (!playlist) throw new Error('Playlist not found');
@@ -118,23 +135,28 @@ export async function playSavedPlaylist(playlistId: number) {
 
 // Bottom bar controller functions
 export async function play(contextUri?: string, uris?: string[]) {
-    await spotify.play(contextUri, uris);
+    await spotify.play(contextUri, uris)
+    io.emit('playbackStateUpdate', !!contextUri);
 }
 
 export async function pause() {
-    await spotify.pause();
+    await spotify.pause()
+    io.emit('playbackStateUpdate');
 }
 
 export async function skipNext() {
-    await spotify.skipNext();
+    await spotify.skipNext()
+    io.emit('playbackStateUpdate');
 }
 
 export async function skipPrevious() {
-    await spotify.skipPrevious();
+    await spotify.skipPrevious()
+    io.emit('playbackStateUpdate');
 }
 
 export async function seekToPosition(positionMs: number) {
-    await spotify.seekToPosition(positionMs);
+    await spotify.seekToPosition(positionMs)
+    io.emit('playbackStateUpdate');
 }
 
 // ---------- THEMED PLAYLIST ----------
