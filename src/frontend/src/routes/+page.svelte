@@ -22,7 +22,11 @@ todo: sort everything in all files, code is a bit disorganized
     type SidebarView = 'themed' | 'playlist' | 'theme' | 'settings';
  
     // ---------- STATE ----------
-    let events: EventSource;
+    // Events
+    import { io } from 'socket.io-client';
+    const socket = io(window.location.origin);
+    //let events: EventSource; temp
+
 
     // There is a moment on startup where playbackstate will not be populated, this should not cause any errors and should rectify quickly
     let playbackState = new PlaybackStore();
@@ -90,20 +94,14 @@ todo: sort everything in all files, code is a bit disorganized
         setTimeout(handleResize, 500);
 
         // Event triggers
-        events = new EventSource(`/api/events`);
-        events.addEventListener('deviceConnected', () => {
-            setTimeout(() => loadPlaybackState(true), loadStateDelay);
-        });
-        events.addEventListener('playbackStateUpdate', () => {
-            setTimeout(() => loadPlaybackState(), loadStateDelay);
-        });
+        socket.on('playbackStateUpdate', (queueChanged: boolean = false) => setTimeout(() => loadPlaybackState(queueChanged), loadStateDelay));
     });
  
     onDestroy(() => {
         clearInterval(progressInterval);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('resize', handleResize);
-        events.close();
+        socket.disconnect();
     });
  
     // ---------- EFFECTS ----------
@@ -138,10 +136,11 @@ todo: sort everything in all files, code is a bit disorganized
     }
 
     async function loadPlaybackState(queueChanged: boolean = false, attempts = 5) {
-        const res = await fetch('/api/playback');
+        console.log('loading...' + attempts);
+        const res = await fetch('/api/player');
         if (!res.ok) {
             // Try to connect a device
-            const deviceRes = await fetch('/api/devices/connect', { method: 'POST' });
+            const deviceRes = await fetch('/api/player/devices/connect', { method: 'POST' });
             const { connected } = await deviceRes.json();
             if (connected) {
                 // Wait a moment for transfer to complete then retry
@@ -154,7 +153,7 @@ todo: sort everything in all files, code is a bit disorganized
             playbackState.raw = data;
             startProgressTimer();
             await loadCurrentTrackRatings();
-            loadQueue(queueChanged);
+            await loadQueue(queueChanged);
         }
         else if (attempts > 1) {
             setTimeout(() => loadPlaybackState(queueChanged, attempts - 1), loadStateDelay);
@@ -163,7 +162,7 @@ todo: sort everything in all files, code is a bit disorganized
 
     async function loadQueue(forceNew?: boolean) {
         if (nextTracks.length <= 5 || forceNew) {
-            const res = await fetch('/api/queue');
+            const res = await fetch('/api/player/queue');
             const data = await res.json();
             nextTracks = data.queue;
         }
@@ -202,7 +201,7 @@ todo: sort everything in all files, code is a bit disorganized
  
     async function loadCurrentTrackRatings() {
         if (!playbackState.item?.id) return;
-        const res = await fetch(`/api/songs/${playbackState.item.id}/ratings`);
+        const res = await fetch(`/api/themes/songs/ratings?id=${playbackState.item.id}`);
         const ratings = await res.json();
         themeRatings = themes.map(t => ({
             themeId: t.id,
@@ -301,52 +300,46 @@ todo: sort everything in all files, code is a bit disorganized
     // ---------- PLAYBACK ----------
 
     async function loadDevices() {
-        const res = await fetch('/api/devices');
+        const res = await fetch('/api/player/devices');
         devices = await res.json() ?? [];
     }
 
     async function connectDevice(deviceId: string) {
-        await fetch('/api/devices/connect', {
+        await fetch('/api/player/devices/connect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ deviceId })
         });
         showDevicePicker = false;
-        setTimeout(loadPlaybackState, 500);
     }
     
     async function setVolume(v: number) {
         if (playbackState) {
             playbackState.volume = v;
-            await fetch('/api/playback/volume', {
+            await fetch('/api/player/volume', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ volume: v })
             });
         }
         else {
-            await loadPlaybackState();
             setTimeout(() => setVolume(v), loadStateDelay);
         }
     }
 
     async function play(context_uri?: string) {
-        if (context_uri) {
-            await fetch(`/api/playback/${context_uri}/play`, { method: 'POST' });
-            setTimeout(() => loadPlaybackState(true), loadStateDelay);
-        }
-        else {
-            await fetch('/api/playback/play', { method: 'POST' });
-            setTimeout(() => loadPlaybackState(), loadStateDelay);
-        }
+        await fetch(`/api/player/play`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uri: context_uri ?? null })
+        });
+        setTimeout(() => loadPlaybackState(true), loadStateDelay);
         if (playbackState) playbackState.is_playing = true;
     }
 
     async function pause() {
-        await fetch('/api/playback/pause', { method: 'POST' });
+        await fetch('/api/player/pause', { method: 'POST' });
         if (playbackState) playbackState.is_playing = false;
-
-        setTimeout(() => loadPlaybackState(), loadStateDelay);
     }
  
     async function skipNext() {
@@ -371,11 +364,10 @@ todo: sort everything in all files, code is a bit disorganized
         }
 
         // Sync
-        await fetch('/api/playback/next', { method: 'POST' });
+        await fetch('/api/player/next', { method: 'POST' });
 
         // Only sync after the user has stopped clicking
         syncTimeout = setTimeout(async () => {
-            await loadPlaybackState();
             await loadQueue();
             syncTimeout = null;
         }, loadStateDelay);
@@ -403,11 +395,10 @@ todo: sort everything in all files, code is a bit disorganized
         }
 
         // Sync
-        await fetch('/api/playback/previous', { method: 'POST' });
+        await fetch('/api/player/previous', { method: 'POST' });
 
         // Only sync after the user has stopped clicking
         syncTimeout = setTimeout(async () => {
-            await loadPlaybackState();
             await loadQueue();
             syncTimeout = null;
         }, loadStateDelay);
@@ -416,20 +407,19 @@ todo: sort everything in all files, code is a bit disorganized
     async function seek(percent: number) {
         if (!playbackState) return;
         const positionMs = Math.floor((percent / 100) * playbackState.duration_ms);
-        await fetch('/api/playback/seek', {
+        await fetch('/api/player/seek', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ positionMs })
         });
         playbackState.progress_ms = positionMs;
-        setTimeout(() => loadPlaybackState(), loadStateDelay);
     }
  
     // ---------- RATING ----------
  
     async function rate(themeId: number, delta: number) {
         if (!playbackState?.item?.id) return;
-        const res = await fetch('/api/ratings', {
+        const res = await fetch('/api/themes/songs/rate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ spotifyId: playbackState.item.id, themeId, delta })

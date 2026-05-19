@@ -1,5 +1,5 @@
 /*
-This file is designed to have a layer of communication between spotify's API and the local database.
+This file is designed to have a layer of communication between spotify's API and the local database
 It exists to keep any data manipulation in a single layer and out of server.ts
 */
 
@@ -50,13 +50,14 @@ export async function getDevices() {
     return data?.devices ?? [];
 }
 
-export async function connectDevice(id?: string): Promise<number> {
+export async function connectDevice(id?: string, force: boolean = false): Promise<number> {
     const devices = await getDevices();
     if (devices.length === 0) return 404;
 
-    const preferred = devices.find((d: any) => d.id === id);
-    const device = preferred ?? devices[0];
+    let device = devices.find((d: any) => d.id === id || d.name === id);
+    if (!force) device = device ?? devices[0];
     
+    if (!device) return 404;
     return await spotify.transferPlayback(device.id);
 }
 
@@ -116,7 +117,6 @@ export async function playSavedPlaylist(playlistId: number) {
     //*/
 
 // Bottom bar controller functions
-
 export async function play(contextUri?: string, uris?: string[]) {
     await spotify.play(contextUri, uris);
 }
