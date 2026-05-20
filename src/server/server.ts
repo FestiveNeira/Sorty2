@@ -15,6 +15,7 @@ import * as bridge from '../utils/bridge.js';
 import { initSocket } from './socket.js';
 import { startLibrespot, stopLibrespot } from '../player/librespot.js';
 import { setupRoutes } from './routes/index.js';
+import { initMiddleware } from './middleware.js';
 
 //Startup functions
 // Get open valid port
@@ -40,6 +41,7 @@ if (config.tokenValidCheck()) {
     console.log('No valid Spotify tokens found, librespot will start after authentication');
 }
 
+initMiddleware(app);
 setupRoutes(app);
 
 // Fallback route
