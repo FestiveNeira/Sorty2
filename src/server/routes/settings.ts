@@ -1,13 +1,12 @@
 import { Router, Request, Response } from 'express';
-import * as bridge from '../bridge.js';
+import * as bridge from '../../utils/bridge.js';
 import { handleError } from '../errors.js';
 import { io } from '../socket.js';
 
 import crypto from 'crypto';
 import os from 'os';
 
-import { initPort, saveConfig, loadConfig } from '../../utils/appconfig.js';
-let config = loadConfig();
+import config from '../../utils/appconfig.js';
 
 const router = Router();
 
@@ -29,7 +28,9 @@ router.get('/', (req: Request, res: Response) => {
 router.post('/', (req: Request, res: Response) => {
     try {
         const { spotifyClientId, skipPenalty, replayBonus } = req.body;
-        saveConfig({ spotifyClientId, skipPenalty, replayBonus });
+        config.spotifyClientId = spotifyClientId;
+        config.skipPenalty = skipPenalty;
+        config.replayBonus = replayBonus;
         res.json({ success: true });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
@@ -39,7 +40,7 @@ router.post('/', (req: Request, res: Response) => {
 router.post('/regenerate-token', (req: Request, res: Response) => {
     try {
         const secretToken = crypto.randomBytes(32).toString('hex');
-        saveConfig({ secretToken });
+        config.secretToken = secretToken;
         res.json({ secretToken });
     } catch (e: any) {
         res.status(500).json({ error: e.message });

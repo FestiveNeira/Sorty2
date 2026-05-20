@@ -5,7 +5,7 @@ It mostly just manages the desktop app windows but it does also launch the backe
 
 import { app, globalShortcut, BrowserWindow, ipcMain } from 'electron';
 import { type Socket, io } from 'socket.io-client';
-import { activePort, loadConfig, saveConfig } from '../utils/appconfig.js'; // still need to implement data saving (only default settings available rn)
+import config from '../utils/appconfig.js'; // still need to implement data saving (only default settings available rn)
 import { toggleOverlayWindow } from './overlay.js';
 import { startBackend } from './backendinit.js';
 
@@ -16,12 +16,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 
-// Loads locally stored data needed to configure the app (rn just connecting to the right address)
-let appdata = loadConfig();
-
 // ---------- WEBSOCKET CREATION ----------
 
-const socket = io(`http://localhost:${activePort}`, {
+const socket = io(`http://localhost:${config.activePort}`, {
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000, // Start retrying after 1s
@@ -30,7 +27,7 @@ const socket = io(`http://localhost:${activePort}`, {
 });
 
 // Function that checks the webserver url 10 times over 3 seconds and connects when it's ready
-async function connectWhenReady(socket: Socket, url = `http://localhost:${activePort}/`, maxAttempts = 10, delayMs = 300) {
+async function connectWhenReady(socket: Socket, url = `http://localhost:${config.activePort}/`, maxAttempts = 10, delayMs = 300) {
     for (let i = 0; i < maxAttempts; i++) {
         try {
             const res = await fetch(url);
@@ -62,7 +59,7 @@ socket.on('reconnect_attempt', (attempt) => {
 // On server connection load the app page
 socket.on('connect', () => {
     console.log('🟢 Connected to server!');
-    mainWindow?.loadURL(`http://localhost:${activePort}`);
+    mainWindow?.loadURL(`http://localhost:${config.activePort}`);
 });
 
 // On disconnect from server load the loading screen
@@ -115,23 +112,21 @@ ipcMain.handle('load-window', (event, local?) => {
         mainWindow?.loadFile('../frontend/local-settings.html');
     }
     else {
-        mainWindow?.loadURL(`http://localhost:${activePort}`);
+        mainWindow?.loadURL(`http://localhost:${config.activePort}`);
     }
 });
 
+/*// todo i don't think we need this one
 // Respond to get-settings requests from the renderer process
 ipcMain.handle('get-settings', () => {
-    if (!appdata) {
-        appdata = loadConfig();
-    }
-    return appdata;
+    return config;
 });
 
 // Respond to save-settings requests from the renderer process
 ipcMain.handle('save-settings', (event, settings) => {
-    saveConfig(settings);
     appdata = loadConfig();
 });
+//*/
 
 // Just for extra stability
 app.disableHardwareAcceleration();

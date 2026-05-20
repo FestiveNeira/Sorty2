@@ -1,8 +1,7 @@
 import { error } from 'console';
 import { getSpotifyTokens, saveSpotifyTokens, isTokenExpired } from '../database/database.js';
-import { loadConfig } from '../utils/appconfig.js';
+import config from '../utils/appconfig.js';
 
-const config = loadConfig();
 const SPOTIFY_API = 'https://api.spotify.com/v1';
 
 // ---------- TOKEN MANAGEMENT ----------

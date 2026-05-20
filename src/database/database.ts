@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
-import { appdataFolder } from '../utils/appconfig.js';
+import config from '../utils/appconfig.js';
 import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
 
-const db = new Database(path.join(appdataFolder, 'sorty.db'));
+const db = new Database(path.join(config.appDataFolder, 'sorty.db'));
 
 db.pragma('journal_mode = WAL');
 
@@ -345,10 +345,4 @@ export function saveSpotifyTokens(accessToken: string, refreshToken: string, exp
             refresh_token = excluded.refresh_token,
             expires_at = excluded.expires_at
     `).run(accessToken, refreshToken, expiresAt);
-}
-
-export function isTokenExpired(): boolean {
-    const tokens = getSpotifyTokens();
-    if (!tokens) return true;
-    return Date.now() >= tokens.expires_at;
 }

@@ -1,4 +1,4 @@
-import * as bridge from './bridge.js';
+import * as bridge from '../utils/bridge.js';
 
 // Funtions for processing errors and retrying logic
 export async function handleError(e: any, func?: () => Promise<any>): Promise<void> {

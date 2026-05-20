@@ -1,13 +1,15 @@
 /*
 This file is designed to have a layer of communication between spotify's API and the local database
 It exists to keep any data manipulation in a single layer and out of server.ts
+it mostly gets called by the routes in src/server/routes and returns transformed data
+it is also the location for event emission, basically it's the processing center of the
 */
 
 import * as spotify from '../spotify/spotify.js';
 import * as db from '../database/database.js';
-import { loadConfig } from '../utils/appconfig.js'
+import config from './appconfig.js'
 import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
-import { io } from './socket.js';
+import { io } from '../server/socket.js';
 
 // ---------- SETUP ----------
 
@@ -390,7 +392,6 @@ export async function importPlaylistSongs(playlistId: string): Promise<number> {
 }
 
 export function getSettingsData() {
-    const config = loadConfig();
     const themedPlaylist = db.getThemedPlaylist();
     const masterPlaylist = db.getMasterPlaylist();
 
@@ -406,18 +407,4 @@ export function getSettingsData() {
             ? `spotify:playlist:${masterPlaylist.spotify_playlist_id}`
             : null,
     };
-}
-
-// ---------- TOKENS ----------
-
-export function getSpotifyTokens(): SpotifyTokens | undefined {
-    return db.getSpotifyTokens();
-}
-
-export function saveSpotifyTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
-    db.saveSpotifyTokens(accessToken, refreshToken, expiresIn);
-}
-
-export function isTokenExpired(): boolean {
-    return db.isTokenExpired();
 }

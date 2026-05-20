@@ -1,5 +1,5 @@
 import { saveSpotifyTokens } from '../database/database.js';
-import { activePort } from '../utils/appconfig.js';
+import config from '../utils/appconfig.js';
 
 // PKCE functions
 export function generateCodeVerifier(length = 128) {
@@ -35,7 +35,7 @@ const SPOTIFY_SCOPES = [
 ].join(' ');
 
 export function getRedirectUri() {
-    return `http://127.0.0.1:${activePort}/api/spotify/callback`;
+    return `http://127.0.0.1:${config.activePort}/api/spotify/callback`;
 }
 
 // Generates the Spotify auth URL

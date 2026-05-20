@@ -1,9 +1,8 @@
 import { Router, Request, Response } from 'express';
-import * as bridge from '../bridge.js';
+import * as bridge from '../../utils/bridge.js';
 import { handleError } from '../errors.js';
 
-import { initPort, saveConfig, loadConfig } from '../../utils/appconfig.js';
-let config = loadConfig();
+import config from '../../utils/appconfig.js';
 
 const router = Router();
 

@@ -6,6 +6,11 @@ Librespot is this app's built in spotify device so that users can listen without
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+
+import * as bridge from '../utils/bridge.js';
+
+const deviceName = `Sorty — ${os.hostname()}`;
 
 let librespotProcess: ChildProcess | null = null;
 
@@ -19,7 +24,11 @@ function getEventScriptPath(): string {
     return path.join(process.cwd(), 'dist/player', binary);
 }
 
-export function startLibrespot(deviceName: string, accessToken: string): Promise<void> {
+function connectLibrespot() {
+    bridge.connectDevice(deviceName);
+}
+
+export function startLibrespot(accessToken: string): Promise<void> {
     return new Promise((resolve) => {
         const binaryPath = getBinaryPath();
 
@@ -49,8 +58,10 @@ export function startLibrespot(deviceName: string, accessToken: string): Promise
         librespotProcess.stderr?.on('data', (data: Buffer) => {
             const line = data.toString().trim();
             console.error('librespot:', line);
+            // kinda hate this way of detecting connection tbh
             if (line.includes('Authenticated as')) {
-                resolve();
+                // Wait for connection to be established then start trying to switch to the librespot player
+                connectLibrespot();
             }
         });
 
@@ -61,7 +72,6 @@ export function startLibrespot(deviceName: string, accessToken: string): Promise
         });
     });
 }
-
 
 export function stopLibrespot(): void {
     if (librespotProcess) {
