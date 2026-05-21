@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import * as bridge from '../../utils/bridge.js';
+import bridge from '../../utils/bridge.js';
 import { handleError } from '../errors.js';
 
 import jwt from 'jsonwebtoken';

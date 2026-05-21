@@ -8,7 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-import * as bridge from '../utils/bridge.js';
+import bridge from '../utils/bridge.js';
 
 const deviceName = `Sorty — ${os.hostname()}`;
 
