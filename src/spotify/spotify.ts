@@ -1,5 +1,4 @@
 import { error } from 'console';
-import { getSpotifyTokens, saveSpotifyTokens, isTokenExpired } from '../database/database.js';
 import config from '../utils/appconfig.js';
 
 const SPOTIFY_API = 'https://api.spotify.com/v1';
@@ -7,12 +6,12 @@ const SPOTIFY_API = 'https://api.spotify.com/v1';
 // ---------- TOKEN MANAGEMENT ----------
 
 async function refreshToken() {
-    const tokens = getSpotifyTokens();
-    if (!tokens) throw new Error('No Spotify tokens found, please authenticate');
+    // No refresh token throws error
+    if (!config.spotifyRefreshToken) throw new Error('No Spotify tokens found, please authenticate');
 
     const body = new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: tokens.refresh_token,
+        refresh_token: config.spotifyRefreshToken,
         client_id: config.spotifyClientId
     });
 
@@ -22,28 +21,22 @@ async function refreshToken() {
         body: body.toString()
     });
 
-    const data = await res.json();
-    saveSpotifyTokens(
-        data.access_token,
-        data.refresh_token ?? tokens.refresh_token,
-        data.expires_in
-    );
-    return data.access_token;
-}
-
-async function getAccessToken(): Promise<string> {
-    if (isTokenExpired()) return await refreshToken();
-    return getSpotifyTokens()!.access_token;
+    // todo is it necessary to do the ?? operator or is there always a new refresh token? requires testing
+    const tokens = await res.json();
+    config.spotifyAccessToken = tokens.access_token;
+    config.spotifyRefreshToken = tokens.refresh_token ?? config.spotifyRefreshToken;
+    config.spotifyTokenExpiry = Date.now() + (tokens.expires_in * 1000);
+    return tokens.access_token;
 }
 
 // General function to build SpotifyAPI requests and recieve formatted responses. isvoid determines if the request expects a response
 async function spotifyFetch(endpoint: string, options: RequestInit = {}) {
-    const token = await getAccessToken();
+    if(!config.tokenValidCheck()) await refreshToken();
 
     const res = await fetch(`${SPOTIFY_API}${endpoint}`, {
         ...options,
         headers: {
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${config.spotifyAccessToken}`,
             'Content-Type': 'application/json',
             ...options.headers
         }

@@ -114,8 +114,7 @@ class Config {
     // Token expiration check
     tokenValidCheck(): boolean {
         // only checks expiry time because all three values get updated together // todo might update this to be an object rather than 3 seperate values
-        if (!this.data.spotifyTokenExpiry) return false;
-        return (Date.now() >= this.data.spotifyTokenExpiry);
+        return (Date.now() <= this.data.spotifyTokenExpiry);
     }
 
     // Port

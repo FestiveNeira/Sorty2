@@ -1,5 +1,5 @@
-clean server.ts
-clean bridge.ts
+ - clean server.ts
+ - clean bridge.ts
 implement overlay
 implement media overlay
 reconsider autorating

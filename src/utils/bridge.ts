@@ -8,7 +8,7 @@ it is also the location for event emission, basically it's the processing center
 import * as spotify from '../spotify/spotify.js';
 import * as db from '../database/database.js';
 import config from './appconfig.js'
-import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
+import type { Song, Theme, Rating, Playlist, SongWithPosition, SongWithRating } from '../types/types.js';
 import { io } from '../server/socket.js';
 
 // ---------- SETUP ----------

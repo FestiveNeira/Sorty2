@@ -1,4 +1,3 @@
-import { saveSpotifyTokens } from '../database/database.js';
 import config from '../utils/appconfig.js';
 
 // PKCE functions
@@ -78,7 +77,9 @@ export async function handleCallback(code: string, clientId: string): Promise<vo
 
     const tokens = await tokenRes.json();
     currentVerifier = null;
-    saveSpotifyTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+    config.spotifyAccessToken = tokens.access_token;
+    config.spotifyRefreshToken = tokens.refresh_token;
+    config.spotifyTokenExpiry = Date.now() + (tokens.expires_in * 1000);
 }
 
 let currentVerifier: string | null = null;

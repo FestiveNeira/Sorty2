@@ -24,6 +24,7 @@ initSocket(httpServer);
 initMiddleware(app);
 setupRoutes(app);
 
+console.log((config.spotifyTokenExpiry - Date.now()) + " - " + config.tokenValidCheck())
 //*/ Start librespot if already authenticated
 if (config.tokenValidCheck()) {
     startLibrespot(config.spotifyAccessToken)

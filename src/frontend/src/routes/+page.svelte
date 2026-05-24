@@ -151,6 +151,7 @@ todo: sort everything in all files, code is a bit disorganized
         const data = await res.json();
         if (data) {
             playbackState.raw = data;
+            // updateMediaSession(data); NOT WORKING
             startProgressTimer();
             await loadCurrentTrackRatings();
             await loadQueue(queueChanged);
@@ -158,6 +159,34 @@ todo: sort everything in all files, code is a bit disorganized
         else if (attempts > 1) {
             setTimeout(() => loadPlaybackState(queueChanged, attempts - 1), loadStateDelay);
         }
+    }
+
+    // todo if works update to use playbackstate object instead of passing info - DOESN'T WORK
+    function updateMediaSession(state: any) {
+        if (!('mediaSession' in navigator)) { console.log('test no session'); return; }
+        if (!state?.item) return;
+
+        navigator.mediaSession.metadata = new MediaMetadata({
+            title: state.item.name,
+            artist: state.item.artists?.map((a: any) => a.name).join(', ') ?? '',
+            album: state.item.album?.name ?? '',
+            artwork: state.item.album?.images?.map((img: any) => ({
+                src: img.url,
+                sizes: `${img.width}x${img.height}`,
+                type: 'image/jpeg'
+            })) ?? []
+        });
+
+        // test
+        console.log(navigator.mediaSession.metadata);
+
+        navigator.mediaSession.playbackState = state.is_playing ? 'playing' : 'paused';
+
+        navigator.mediaSession.setActionHandler('play', () => fetch('/api/player/play', { method: 'POST' }));
+        navigator.mediaSession.setActionHandler('pause', () => fetch('/api/player/pause', { method: 'POST' }));
+        navigator.mediaSession.setActionHandler('nexttrack', () => fetch('/api/player/next', { method: 'POST' }));
+        navigator.mediaSession.setActionHandler('previoustrack', () => fetch('/api/player/previous', { method: 'POST' }));
+        navigator.mediaSession.setActionHandler('stop', () => fetch('/api/player/pause', { method: 'POST' }));
     }
 
     async function loadQueue(forceNew?: boolean) {

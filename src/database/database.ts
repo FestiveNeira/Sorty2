@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import config from '../utils/appconfig.js';
-import type { Song, Theme, Rating, Playlist, SpotifyTokens, SongWithPosition, SongWithRating } from '../types/types.js';
+import type { Song, Theme, Rating, Playlist, SongWithPosition, SongWithRating } from '../types/types.js';
 
 const db = new Database(path.join(config.appDataFolder, 'sorty.db'));
 
@@ -328,7 +328,7 @@ export function getPlaylistSongsDynamic(
 }
 
 // ---------- SPOTIFY TOKENS ----------
-
+/*
 export function getSpotifyTokens(): SpotifyTokens | undefined {
     return db.prepare('SELECT * FROM spotify_tokens').get() as SpotifyTokens | undefined;
 }
@@ -346,3 +346,4 @@ export function saveSpotifyTokens(accessToken: string, refreshToken: string, exp
             expires_at = excluded.expires_at
     `).run(accessToken, refreshToken, expiresAt);
 }
+//*/

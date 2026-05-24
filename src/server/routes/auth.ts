@@ -9,12 +9,12 @@ import { startLibrespot } from '../../player/librespot.js';
 
 const router = Router();
 
-router.post('/api/librespot-event', (req: Request, res: Response) => {
+router.post('/librespot-event', (req: Request, res: Response) => {
     const { event } = req.body;
     console.log('librespot event:', event);
 });
 
-router.post('/api/login', (req: Request, res: Response) => {
+router.post('/login', (req: Request, res: Response) => {
     if (req.body.token === config.secretToken) {
         const token = jwt.sign(
             { authenticated: true },
@@ -32,17 +32,17 @@ router.post('/api/login', (req: Request, res: Response) => {
     }
 });
 
-router.post('/api/logout', (req: Request, res: Response) => {
+router.post('/logout', (req: Request, res: Response) => {
     res.clearCookie('auth');
     res.json({ success: true });
 });
 
-router.get('/api/spotify/auth', async (req: Request, res: Response) => {
+router.get('/spotify/auth', async (req: Request, res: Response) => {
     const url = await getAuthUrl(config.spotifyClientId);
     res.redirect(url);
 });
 
-router.get('/api/spotify/callback', async (req: Request, res: Response) => {
+router.get('/spotify/callback', async (req: Request, res: Response) => {
     const code = req.query.code as string;
     const error = req.query.error as string;
 
@@ -82,11 +82,11 @@ router.get('/api/spotify/token', (req: Request, res: Response) => {
 
 // External
 
-router.get('/api/external-access', (req: Request, res: Response) => {
+router.get('/external-access', (req: Request, res: Response) => {
     res.json({ ExternalAccessEnabled: config.externalAccessEnabled });
 });
 
-router.post('/api/external-access/toggle', (req: Request, res: Response) => {
+router.post('/external-access/toggle', (req: Request, res: Response) => {
     try {
         config.externalAccessEnabled = !config.externalAccessEnabled;
         // todo fix external access stuff

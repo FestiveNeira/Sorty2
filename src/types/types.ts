@@ -35,13 +35,6 @@ export interface PlaylistSong {
     position: number;
 }
 
-export interface SpotifyTokens {
-    id: number;
-    access_token: string;
-    refresh_token: string;
-    expires_at: number;
-}
-
 export interface SongWithRating extends Song {
     rating: number;
 }
