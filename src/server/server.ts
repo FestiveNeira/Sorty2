@@ -12,6 +12,7 @@ import { initSocket } from './socket.js';
 import { initMiddleware } from './middleware.js';
 import { setupRoutes } from './routes/index.js';
 import { startLibrespot, stopLibrespot } from '../player/librespot.js';
+import { initAudioEvents, initAudioStream } from './routes/audio.js';
 
 //Startup functions
 const port = await config.initPort();
@@ -19,15 +20,20 @@ const port = await config.initPort();
 const app = express();
 const httpServer = http.createServer(app);
 
-initDatabase();
-initSocket(httpServer);
-initMiddleware(app);
-setupRoutes(app);
+// Database
+initDatabase();             // Creates and initiallizes the local database
+// Socket.io
+initSocket(httpServer);     // Creates the socket.io server for events
+initAudioEvents();          // Registers audio events on the socket.io server
+// Server
+initMiddleware(app);        // Registers middleware for connections
+setupRoutes(app);           // Registers API routes
 
 console.log((config.spotifyTokenExpiry - Date.now()) + " - " + config.tokenValidCheck())
 //*/ Start librespot if already authenticated
 if (config.tokenValidCheck()) {
     startLibrespot(config.spotifyAccessToken)
+        .then(stdout => initAudioStream(stdout))
         .catch(console.error);
 } else {
     console.log('No valid Spotify tokens found, librespot will start after authentication');

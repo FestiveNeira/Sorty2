@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import bridge from '../../utils/bridge.js';
 import { handleError } from '../errors.js';
-import { io } from '../socket.js';
 
 import crypto from 'crypto';
 import os from 'os';

@@ -9,6 +9,7 @@ todo: sort everything in all files, code is a bit disorganized
 
 <script lang="ts">
     import { PlaybackStore } from '$lib/PlaybackStore.svelte';
+    import { flushAudio, initAudio, pauseAudio, resumeAudio, stopAudio } from '$lib/audio';
     import type { Track, Episode, TrackItem } from '@spotify/web-api-ts-sdk';
     import { onMount, onDestroy } from 'svelte';
     import type { Theme, Playlist, SongWithRating } from '../../../types/types';
@@ -25,8 +26,6 @@ todo: sort everything in all files, code is a bit disorganized
     // Events
     import { io } from 'socket.io-client';
     const socket = io(window.location.origin);
-    //let events: EventSource; temp
-
 
     // There is a moment on startup where playbackstate will not be populated, this should not cause any errors and should rectify quickly
     let playbackState = new PlaybackStore();
@@ -151,7 +150,7 @@ todo: sort everything in all files, code is a bit disorganized
         const data = await res.json();
         if (data) {
             playbackState.raw = data;
-            // updateMediaSession(data); NOT WORKING
+            updateMediaSession(data); // todo: NOT WORKING??
             startProgressTimer();
             await loadCurrentTrackRatings();
             await loadQueue(queueChanged);
@@ -334,14 +333,17 @@ todo: sort everything in all files, code is a bit disorganized
     }
 
     async function connectDevice(deviceId: string) {
+        await stopAudio(); // if an audio context exists destroy it
         await fetch('/api/player/devices/connect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ deviceId })
         });
         showDevicePicker = false;
+        await initAudio(socket); // create a new audio context for the device
     }
     
+    // todo: rip this and use local volume from the audio context as it's more flexible for smooth playback
     async function setVolume(v: number) {
         if (playbackState) {
             playbackState.volume = v;
@@ -362,12 +364,14 @@ todo: sort everything in all files, code is a bit disorganized
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ uri: context_uri ?? null })
         });
+        resumeAudio(); // audio context function
         setTimeout(() => loadPlaybackState(true), loadStateDelay);
         if (playbackState) playbackState.is_playing = true;
     }
 
     async function pause() {
         await fetch('/api/player/pause', { method: 'POST' });
+        pauseAudio(); // audio context function
         if (playbackState) playbackState.is_playing = false;
     }
  
@@ -394,6 +398,8 @@ todo: sort everything in all files, code is a bit disorganized
 
         // Sync
         await fetch('/api/player/next', { method: 'POST' });
+
+        flushAudio(); // audio context function
 
         // Only sync after the user has stopped clicking
         syncTimeout = setTimeout(async () => {
@@ -426,6 +432,8 @@ todo: sort everything in all files, code is a bit disorganized
         // Sync
         await fetch('/api/player/previous', { method: 'POST' });
 
+        flushAudio(); // audio context function
+
         // Only sync after the user has stopped clicking
         syncTimeout = setTimeout(async () => {
             await loadQueue();
@@ -441,6 +449,7 @@ todo: sort everything in all files, code is a bit disorganized
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ positionMs })
         });
+        flushAudio(); // audio context function
         playbackState.progress_ms = positionMs;
     }
  
@@ -1227,6 +1236,12 @@ todo: sort everything in all files, code is a bit disorganized
             </div>
             <button class="ctrl-btn device" onclick={async () => { await loadDevices(); showDevicePicker = true; }}>
                 💻
+            </button>
+            <button onclick={async () => { await initAudio(socket); }}>
+                E
+            </button>
+            <button onclick={async () => { await stopAudio(); }}>
+                D
             </button>
         </div>
     </footer>

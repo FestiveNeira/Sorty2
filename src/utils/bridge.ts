@@ -9,7 +9,7 @@ import * as spotify from '../spotify/spotify.js';
 import * as db from '../database/database.js';
 import config from './appconfig.js'
 import type { Song, Theme, Rating, Playlist, SongWithPosition, SongWithRating } from '../types/types.js';
-import { io } from '../server/socket.js';
+import { ioserver } from '../server/socket.js';
 
 // ---------- SETUP ----------
 
@@ -67,7 +67,7 @@ const bridge = {
                 if (device) {
                     console.log("Connecting to " + device.id);
                     const status = await spotify.transferPlayback(device.id)
-                    io.emit('playbackStateUpdate', true);
+                    ioserver.emit('playbackStateUpdate', true);
                     return status;
                 }
             }
@@ -82,7 +82,7 @@ const bridge = {
 
     async setVolume(volumePercent: number) {
         const status = await spotify.setVolume(volumePercent);
-        io.emit('playbackStateUpdate');
+        ioserver.emit('playbackStateUpdate');
         return status;
     },
 
@@ -140,27 +140,27 @@ async playSavedPlaylist(playlistId: number) {
     // Bottom bar controller functions
     async play(contextUri?: string, uris?: string[]) {
         await spotify.play(contextUri, uris)
-        io.emit('playbackStateUpdate', !!contextUri);
+        ioserver.emit('playbackStateUpdate', !!contextUri);
     },
 
     async pause() {
         await spotify.pause()
-        io.emit('playbackStateUpdate');
+        ioserver.emit('playbackStateUpdate');
     },
 
     async skipNext() {
         await spotify.skipNext()
-        io.emit('playbackStateUpdate');
+        ioserver.emit('playbackStateUpdate');
     },
 
     async skipPrevious() {
         await spotify.skipPrevious()
-        io.emit('playbackStateUpdate');
+        ioserver.emit('playbackStateUpdate');
     },
 
     async seekToPosition(positionMs: number) {
         await spotify.seekToPosition(positionMs)
-        io.emit('playbackStateUpdate');
+        ioserver.emit('playbackStateUpdate');
     },
 
     // ---------- THEMED PLAYLIST ----------

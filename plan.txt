@@ -7,3 +7,10 @@ fix master playlist appearance
 rip css
 make sure everything is explicitly typed, especially function return values
 switch bridge.getSpotifyTokens(); with config.accesstoken and config.refreshtoken
+
+audio stuff
+select sockets as devices (will need to be identifiable by device)
+a single socket controls playback rate and requests packets
+audio mode can be toggled to play from all sockets a single socket still controls rate and such but audio gets sent to all sockets.
+client will have a .5 second max buffer server will have no buffer and will read and send data directly from librespot stdout
+need a way to tell client if it's allowed to make requests
