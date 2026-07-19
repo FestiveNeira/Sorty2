@@ -11,8 +11,24 @@ const MIN_BUFFER = 0.25;
 let audioCtx: AudioContext | null = null;
 let nextPlayTime = 0;
 let socket: Socket | null = null;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const scheduledSources: AudioBufferSourceNode[] = [];
+
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+        console.log('Buffered Ahead: ' + secondsBuffered());
+        if (secondsBuffered() < MIN_BUFFER) {
+            socket?.emit('request-chunk');
+        }
+    }, 50);
+}
+
+function stopPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+}
 
 function getAudioContext(): AudioContext {
     if (!audioCtx) {
@@ -67,12 +83,10 @@ function secondsBuffered(): number {
 function processChunk(data: ArrayBuffer | Uint8Array) {
     const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
     schedulePCM(chunk);
-    if (secondsBuffered() < MIN_BUFFER) {
-        socket?.emit('request-chunk');
-    }
 }
 
-export async function initAudio(audioSocket: Socket) {
+// note: Export below is redundant, it's included for ease of reading
+async function initAudio(audioSocket: Socket) {
     socket = audioSocket;
     const ctx = getAudioContext();
     await ctx.resume();
@@ -81,10 +95,12 @@ export async function initAudio(audioSocket: Socket) {
     socket.on('audio-chunk', processChunk);
     socket.on('audio-end', () => console.log('audio stream ended'));
 
-    socket.emit('request-chunk'); // prime the pump
+    startPolling();
 }
 
-export async function stopAudio() {
+async function stopAudio() {
+    stopPolling();
+
     socket?.off('audio-chunk', processChunk);
     socket?.off('audio-end');
     socket = null;
@@ -95,21 +111,29 @@ export async function stopAudio() {
 }
 
 // ---------- AUDIO CONTEXT ----------
+// These can be called in other files the above functions are only for this file's logic
 
 // Call alongside your play/pause logic
-export async function pauseAudio() {
+async function pauseAudio() {
     await audioCtx?.suspend();
 }
 
-export async function resumeAudio() {
+async function resumeAudio() {
     await audioCtx?.resume();
 }
 
 // Call before seek/next/prev — flushes scheduled audio and requests fresh data
-export function flushAudio() {
-    scheduledSources.forEach(s => { try { s.stop(); } catch {} });
+function flushAudio() {
+    stopPolling(); // Stop requesting old song data while we flush
+
+    scheduledSources.forEach(s => { try { s.stop(); } catch { } });
     scheduledSources.length = 0;
     nextPlayTime = audioCtx ? audioCtx.currentTime + SCHEDULE_AHEAD : 0;
-    // todo: at the mooment this can fetch faster than spotify processes the api request meaning some old audio continues before the update
-    socket?.emit('request-chunk');
+
+    // todo: at the moment this can fetch faster than spotify processes the api request meaning some old audio continues before the update
+    socket?.emit('flush-chunk');
+
+    startPolling(); // Start polling new data
 }
+
+export default { initAudio, stopAudio, pauseAudio, resumeAudio, flushAudio };

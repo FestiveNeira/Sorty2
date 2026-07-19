@@ -26,6 +26,7 @@ router.use(helmet({
             frameSrc: ["'self'", "https://sdk.scdn.co"],
             connectSrc: ["'self'", "https://api.spotify.com", "wss://dealer.spotify.com", "https://dealer.spotify.com"],
             imgSrc: ["'self'", "data:", "https://i.scdn.co", "https://*.scdn.co", "https://*.spotifycdn.com"],
+            mediaSrc: ["'self'", "blob:"],
         }
     }
 }));

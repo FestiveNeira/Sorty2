@@ -28,31 +28,32 @@ function connectLibrespot() {
     bridge.connectDevice(deviceName);
 }
 
-export function startLibrespot(accessToken: string): Promise<NodeJS.ReadableStream | null> {
+export function startAudioSubprocess(accessToken: string): Promise<ChildProcess> {
     return new Promise((resolve) => {
         const binaryPath = getBinaryPath();
 
         if (!fs.existsSync(binaryPath)) {
             console.error('librespot binary not found at:', binaryPath);
-            resolve(null);
             return;
         }
 
         stopLibrespot();
         console.log('Starting librespot...');
 
+        // todo check what passthrough changes
         librespotProcess = spawn(binaryPath, [
             '--name', deviceName,
+            '--bitrate', '320',
             '--format', 'F32',
             '--device-type', 'computer',
             '--access-token', accessToken,
-            '--backend', 'pipe',
+            '--backend', 'rodio',
             '--disable-audio-cache',
             '--onevent', getEventScriptPath(),
         ], { stdio: 'pipe' });
 
         librespotProcess.stdout?.on('data', (data: Buffer) => {
-            //console.log('librespot:', data.toString().trim());
+            console.log('librespot:', data.toString().trim()); // debug
         });
 
         librespotProcess.stderr?.on('data', (data: Buffer) => {
@@ -61,7 +62,7 @@ export function startLibrespot(accessToken: string): Promise<NodeJS.ReadableStre
             // kinda hate this way of detecting connection tbh
             if (line.includes('Authenticated as')) {
                 // Wait for connection to be established then start trying to switch to the librespot player
-                resolve(librespotProcess!.stdout);
+                resolve(librespotProcess!); // pass up the processes we use
                 connectLibrespot();
             }
         });
@@ -69,7 +70,6 @@ export function startLibrespot(accessToken: string): Promise<NodeJS.ReadableStre
         librespotProcess.on('close', (code) => {
             console.log(`librespot exited with code ${code}`);
             librespotProcess = null;
-            resolve(null);
         });
     });
 }
@@ -84,8 +84,4 @@ export function stopLibrespot(): void {
 
 export function isLibrespotRunning(): boolean {
     return librespotProcess !== null;
-}
-
-export function getLibrespotStdout() {
-    return librespotProcess?.stdout;
 }

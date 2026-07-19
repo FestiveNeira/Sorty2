@@ -11,8 +11,9 @@ import { initDatabase } from '../utils/bridge.js';
 import { initSocket } from './socket.js';
 import { initMiddleware } from './middleware.js';
 import { setupRoutes } from './routes/index.js';
-import { startLibrespot, stopLibrespot } from '../player/librespot.js';
+import { startAudioSubprocess, stopLibrespot } from '../player/librespot.js';
 import { initAudioEvents, initAudioStream } from './routes/audio.js';
+import { startUdpEventListener } from './events.js';
 
 //Startup functions
 const port = await config.initPort();
@@ -32,8 +33,8 @@ setupRoutes(app);           // Registers API routes
 console.log((config.spotifyTokenExpiry - Date.now()) + " - " + config.tokenValidCheck())
 //*/ Start librespot if already authenticated
 if (config.tokenValidCheck()) {
-    startLibrespot(config.spotifyAccessToken)
-        .then(stdout => initAudioStream(stdout))
+    startAudioSubprocess(config.spotifyAccessToken)
+        .then(librespot => initAudioStream(librespot))
         .catch(console.error);
 } else {
     console.log('No valid Spotify tokens found, librespot will start after authentication');
@@ -45,6 +46,7 @@ app.get('/{*path}', (req: Request, res: Response) => { res.sendFile('index.html'
 // Start server
 httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${port}`);
+    startUdpEventListener();
 });
 
 // Cleanup

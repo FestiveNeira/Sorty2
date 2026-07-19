@@ -8,84 +8,36 @@ todo: sort everything in all files, code is a bit disorganized
 -->
 
 <script lang="ts">
-    import { PlaybackStore } from '$lib/PlaybackStore.svelte';
-    import { flushAudio, initAudio, pauseAudio, resumeAudio, stopAudio } from '$lib/audio';
-    import type { Track, Episode, TrackItem } from '@spotify/web-api-ts-sdk';
+    import PlaybackState from '$lib/player/PlaybackState.svelte';
+    import LibraryState from '$lib/player/LibraryState.svelte';
+    import NavigatorState from '$lib/player/NavigatorState.svelte';
+    import playerController from '$lib/player/playerController';
+    import libraryController from '$lib/player/libraryController';
+    import navigatorController from '$lib/player/navigatorController';
+    import type { Track, Episode } from '@spotify/web-api-ts-sdk';
     import { onMount, onDestroy } from 'svelte';
-    import type { Theme, Playlist, SongWithRating } from '../../../types/types';
 
-    // ---------- TYPES ----------
-    interface ThemeRating {
-        themeId: number;
-        rating: number;
-    }
-
-    type SidebarView = 'themed' | 'playlist' | 'theme' | 'settings';
- 
     // ---------- STATE ----------
     // Events
     import { io } from 'socket.io-client';
     const socket = io(window.location.origin);
 
     // There is a moment on startup where playbackstate will not be populated, this should not cause any errors and should rectify quickly
-    let playbackState = new PlaybackStore();
     const loadStateDelay = 300;
 
-    let nextTracks = $state<TrackItem[]>([]);
-    let previousTracks = $state<TrackItem[]>([]);
-
-    // Used to prevent multiple quick calls from running in parallel
-    let syncTimeout: ReturnType<typeof setTimeout> | null = null;
- 
-    // Sidebar
-    let themes = $state<Theme[]>([]);
-    let playlists = $state<Playlist[]>([]);
-    let selectedView = $state<SidebarView>('themed');
-    let selectedId = $state<number | null>(null);
-    let themesOpen = $state(true);
-    let playlistsOpen = $state(true);
- 
-    // Main content
-    let songs = $state<SongWithRating[]>([]);
-    let search = $state('');
-    let sortBy = $state('rating');
-    let sortOrder = $state('DESC');
-    let contentTitle = $state('Themed Playlist');
- 
-    // Playlist builder
-    let builderThemeId = $state<number | null>(1);
-    let builderRatingMin = $state<number | null>(null);
-    let builderRatingMax = $state<number | null>(null);
-    let builderSort = $state('top');
-    let builderLimit = $state<number | null>(null);
- 
-    // Right sidebar
-    let themeRatings = $state<ThemeRating[]>([]);
-
-    // Bottom Bar
-    let showDevicePicker = $state(false);
-    let devices = $state<any[]>([]);
- 
-    // Modals
-    let showNewTheme = $state(false);
-    let showSavePlaylist = $state(false);
-    let showDeleteConfirm = $state(false);
-    let deleteTarget = $state<{ type: 'theme' | 'playlist', id: number, name: string } | null>(null);
-    let newThemeName = $state('');
-    let cloneFromThemeId = $state<number | null>(null);
-    let savePlaylistName = $state('');
-    let savePlaylistDynamic = $state(true);
- 
     // ---------- LIFECYCLE ----------
- 
-    let progressInterval: ReturnType<typeof setInterval>;
- 
+
+    function handleResize() {
+        NavigatorState.handleResize();
+    }
+
     onMount(async () => {
         // Load App Data
-        await loadThemes();
-        await loadPlaylists();
-        await loadThemedPlaylistSongs();
-        await loadBuilderPreview();
+        await libraryController.loadThemes();
+        await libraryController.loadPlaylists();
+        await libraryController.loadThemedPlaylistSongs();
+        await libraryController.loadBuilderPreview();
+
         // Update When Focused
         document.addEventListener('visibilitychange', handleVisibilityChange);
         // Format Window
@@ -93,607 +45,42 @@ todo: sort everything in all files, code is a bit disorganized
         setTimeout(handleResize, 500);
 
         // Event triggers
-        socket.on('playbackStateUpdate', (queueChanged: boolean = false) => setTimeout(() => loadPlaybackState(queueChanged), loadStateDelay));
+        // todo: restore once player.ts/playerAPI is wired back in
+        socket.on('playbackStateUpdate', (queueChanged: boolean = false) => setTimeout(() => playerController.loadPlaybackState(queueChanged), loadStateDelay));
     });
- 
+
     onDestroy(() => {
-        clearInterval(progressInterval);
+        // todo: clearInterval(progressInterval) and remove all player related processes
         document.removeEventListener('visibilitychange', handleVisibilityChange);
         window.removeEventListener('resize', handleResize);
         socket.disconnect();
     });
- 
+
     // ---------- EFFECTS ----------
- 
+
     $effect(() => {
-        if (builderThemeId && selectedView === 'themed') {
-            loadBuilderPreview();
+        if (LibraryState.builderThemeId && NavigatorState.selectedView === 'themed') {
+            libraryController.loadBuilderPreview();
         }
     });
- 
-    // ---------- PLAYBACK CORE ----------
- 
-    function startProgressTimer() {
-        clearInterval(progressInterval);
-        if (!playbackState.is_playing || !playbackState.item) return;
 
-        progressInterval = setInterval(() => {
-            if (!playbackState.item) return;
-            playbackState.progress_ms = Math.min(playbackState.progress_ms + 1000, playbackState.duration_ms);
-            if (playbackState.progress_ms == playbackState.duration_ms) {
-                clearInterval(progressInterval);
-                loadPlaybackState();
-            }
-        }, 1000);
-    }
+    // ---------- PLAYBACK CORE ----------
 
     async function handleVisibilityChange() {
         if (document.visibilityState === 'visible') {
-            await loadPlaybackState();
-            await loadQueue(true);
+            await playerController.loadPlaybackState(true);
         }
-    }
-
-    async function loadPlaybackState(queueChanged: boolean = false, attempts = 5) {
-        console.log('loading...' + attempts);
-        const res = await fetch('/api/player');
-        if (!res.ok) {
-            // Try to connect a device
-            const deviceRes = await fetch('/api/player/devices/connect', { method: 'POST' });
-            const { connected } = await deviceRes.json();
-            if (connected) {
-                // Wait a moment for transfer to complete then retry
-                setTimeout(() => loadPlaybackState(queueChanged), 1000);
-            }
-            return;
-        }
-        const data = await res.json();
-        if (data) {
-            playbackState.raw = data;
-            updateMediaSession(data); // todo: NOT WORKING??
-            startProgressTimer();
-            await loadCurrentTrackRatings();
-            await loadQueue(queueChanged);
-        }
-        else if (attempts > 1) {
-            setTimeout(() => loadPlaybackState(queueChanged, attempts - 1), loadStateDelay);
-        }
-    }
-
-    // todo if works update to use playbackstate object instead of passing info - DOESN'T WORK
-    function updateMediaSession(state: any) {
-        if (!('mediaSession' in navigator)) { console.log('test no session'); return; }
-        if (!state?.item) return;
-
-        navigator.mediaSession.metadata = new MediaMetadata({
-            title: state.item.name,
-            artist: state.item.artists?.map((a: any) => a.name).join(', ') ?? '',
-            album: state.item.album?.name ?? '',
-            artwork: state.item.album?.images?.map((img: any) => ({
-                src: img.url,
-                sizes: `${img.width}x${img.height}`,
-                type: 'image/jpeg'
-            })) ?? []
-        });
-
-        // test
-        console.log(navigator.mediaSession.metadata);
-
-        navigator.mediaSession.playbackState = state.is_playing ? 'playing' : 'paused';
-
-        navigator.mediaSession.setActionHandler('play', () => fetch('/api/player/play', { method: 'POST' }));
-        navigator.mediaSession.setActionHandler('pause', () => fetch('/api/player/pause', { method: 'POST' }));
-        navigator.mediaSession.setActionHandler('nexttrack', () => fetch('/api/player/next', { method: 'POST' }));
-        navigator.mediaSession.setActionHandler('previoustrack', () => fetch('/api/player/previous', { method: 'POST' }));
-        navigator.mediaSession.setActionHandler('stop', () => fetch('/api/player/pause', { method: 'POST' }));
-    }
-
-    async function loadQueue(forceNew?: boolean) {
-        if (nextTracks.length <= 5 || forceNew) {
-            const res = await fetch('/api/player/queue');
-            const data = await res.json();
-            nextTracks = data.queue;
-        }
-    }
-
-    // ---------- DATA LOADING ----------
- 
-    async function loadThemes() {
-        const res = await fetch('/api/themes');
-        themes = await res.json();
-        themeRatings = themes.map(t => ({ themeId: t.id, rating: 0 }));
-        builderThemeId = getDefaultTheme()?.id ?? null;
-    }
- 
-    async function loadPlaylists() {
-        const res = await fetch('/api/playlists');
-        playlists = await res.json();
-    }
- 
-    async function loadThemedPlaylistSongs() {
-        const res = await fetch('/api/playlists/themed/songs');
-        songs = await res.json();
-    }
- 
-    async function loadThemeSongs(themeId: number) {
-        const params = new URLSearchParams({ sortBy, order: sortOrder });
-        if (search) params.set('search', search);
-        const res = await fetch(`/api/themes/${themeId}/songs?${params}`);
-        songs = await res.json();
-    }
- 
-    async function loadSavedPlaylistSongs(playlistId: number) {
-        const res = await fetch(`/api/playlists/${playlistId}/songs`);
-        songs = await res.json();
-    }
- 
-    async function loadCurrentTrackRatings() {
-        if (!playbackState.item?.id) return;
-        const res = await fetch(`/api/themes/songs/ratings?id=${playbackState.item.id}`);
-        const ratings = await res.json();
-        themeRatings = themes.map(t => ({
-            themeId: t.id,
-            rating: ratings.find((r: any) => r.theme_id === t.id)?.rating ?? 0
-        }));
-    }
-
-    async function loadBuilderPreview() {
-        if (!builderThemeId) return;
-        const params = new URLSearchParams();
-        params.set('themeId', String(builderThemeId));
-        params.set('sort', builderSort);
-        if (builderRatingMin !== null) params.set('ratingMin', String(builderRatingMin));
-        if (builderRatingMax !== null) params.set('ratingMax', String(builderRatingMax));
-        if (builderLimit !== null) params.set('limitCount', String(builderLimit));
-        const res = await fetch(`/api/playlists/preview?${params}`);
-        songs = await res.json();
-    }
-
-    // ---------- SIDEBAR FORMATTING ----------
-
-    const AUTO_COLLAPSE_WIDTH = 1000;
-
-    let leftOpen = $state(true);
-    let rightOpen = $state(true);
-
-    let reopenLeft = $state(true);
-    let reopenRight = $state(true);
-
-    function handleResize() {
-        if (window.innerWidth < AUTO_COLLAPSE_WIDTH && rightOpen) {
-            rightOpen = false;
-        }
-        if (window.innerWidth > AUTO_COLLAPSE_WIDTH) {
-            if (reopenLeft) leftOpen = true;
-            if (reopenRight) rightOpen = true;
-        }
-    }
-
-    function toggleLeft() {
-        if (!leftOpen) {
-            // opening left
-            if (window.innerWidth < AUTO_COLLAPSE_WIDTH) {
-                rightOpen = false; // collapse right to make room
-            }
-            leftOpen = true;
-        } else {
-            leftOpen = false;
-            reopenLeft = false;
-        }
-    }
-
-    function toggleRight() {
-        if (!rightOpen) {
-            // opening right
-            if (window.innerWidth < AUTO_COLLAPSE_WIDTH) {
-                leftOpen = false; // collapse left to make room
-            }
-            rightOpen = true;
-        } else {
-            rightOpen = false;
-            reopenRight = false;
-        }
-    }
- 
-    // ---------- SIDEBAR SELECTION ----------
- 
-    async function selectThemed() {
-        selectedView = 'themed';
-        selectedId = null;
-        contentTitle = 'Themed Playlist';
-        await loadThemedPlaylistSongs();
-    }
- 
-    async function selectTheme(theme: Theme) {
-        selectedView = 'theme';
-        selectedId = theme.id;
-        contentTitle = theme.name;
-        await loadThemeSongs(theme.id);
-    }
- 
-    async function selectPlaylist(playlist: Playlist) {
-        selectedView = 'playlist';
-        selectedId = playlist.id;
-        contentTitle = playlist.name;
-        await loadSavedPlaylistSongs(playlist.id);
-    }
- 
-    async function selectSettings() {
-        selectedView = 'settings';
-        selectedId = null;
-        contentTitle = 'Settings';
-        await loadSettings();
-    }
- 
-    // ---------- PLAYBACK ----------
-
-    async function loadDevices() {
-        const res = await fetch('/api/player/devices');
-        devices = await res.json() ?? [];
-    }
-
-    async function connectDevice(deviceId: string) {
-        await stopAudio(); // if an audio context exists destroy it
-        await fetch('/api/player/devices/connect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId })
-        });
-        showDevicePicker = false;
-        await initAudio(socket); // create a new audio context for the device
-    }
-    
-    // todo: rip this and use local volume from the audio context as it's more flexible for smooth playback
-    async function setVolume(v: number) {
-        if (playbackState) {
-            playbackState.volume = v;
-            await fetch('/api/player/volume', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ volume: v })
-            });
-        }
-        else {
-            setTimeout(() => setVolume(v), loadStateDelay);
-        }
-    }
-
-    async function play(context_uri?: string) {
-        await fetch(`/api/player/play`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uri: context_uri ?? null })
-        });
-        resumeAudio(); // audio context function
-        setTimeout(() => loadPlaybackState(true), loadStateDelay);
-        if (playbackState) playbackState.is_playing = true;
-    }
-
-    async function pause() {
-        await fetch('/api/player/pause', { method: 'POST' });
-        pauseAudio(); // audio context function
-        if (playbackState) playbackState.is_playing = false;
-    }
- 
-    async function skipNext() {
-        // Clear any planned calls to update player
-        if (syncTimeout) {
-            clearTimeout(syncTimeout);
-            syncTimeout = null;
-        }
-
-        // Update
-        let nextTrack = nextTracks.shift();
-        if (nextTrack && playbackState.item) {
-            previousTracks.push(playbackState.item);
-            playbackState.raw = {
-                ...playbackState.raw!,
-                item: nextTrack,
-                progress_ms: 0,
-                is_playing: true
-            };
-            startProgressTimer();
-            await loadCurrentTrackRatings();
-        }
-
-        // Sync
-        await fetch('/api/player/next', { method: 'POST' });
-
-        flushAudio(); // audio context function
-
-        // Only sync after the user has stopped clicking
-        syncTimeout = setTimeout(async () => {
-            await loadQueue();
-            syncTimeout = null;
-        }, loadStateDelay);
-    }
- 
-    async function skipPrevious() {
-        // Clear any planned calls to update player
-        if (syncTimeout) {
-            clearTimeout(syncTimeout);
-            syncTimeout = null;
-        }
-
-        // Update
-        let previousTrack = previousTracks.pop();
-        if (previousTrack && playbackState.item) {
-            nextTracks.unshift(playbackState.item);
-            playbackState.raw = {
-                ...playbackState.raw!,
-                item: previousTrack,
-                progress_ms: 0,
-                is_playing: true
-            };
-            startProgressTimer();
-            await loadCurrentTrackRatings();
-        }
-
-        // Sync
-        await fetch('/api/player/previous', { method: 'POST' });
-
-        flushAudio(); // audio context function
-
-        // Only sync after the user has stopped clicking
-        syncTimeout = setTimeout(async () => {
-            await loadQueue();
-            syncTimeout = null;
-        }, loadStateDelay);
-    }
- 
-    async function seek(percent: number) {
-        if (!playbackState) return;
-        const positionMs = Math.floor((percent / 100) * playbackState.duration_ms);
-        await fetch('/api/player/seek', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ positionMs })
-        });
-        flushAudio(); // audio context function
-        playbackState.progress_ms = positionMs;
-    }
- 
-    // ---------- RATING ----------
- 
-    async function rate(themeId: number, delta: number) {
-        if (!playbackState?.item?.id) return;
-        const res = await fetch('/api/themes/songs/rate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ spotifyId: playbackState.item.id, themeId, delta })
-        });
-        const { rating } = await res.json();
-        themeRatings = themeRatings.map(r =>
-            r.themeId === themeId ? { ...r, rating } : r
-        );
-        if (selectedView === 'theme' && selectedId === themeId) {
-            await loadThemeSongs(themeId);
-        }
-    }
- 
-    function getRating(themeId: number): number {
-        return themeRatings.find(r => r.themeId === themeId)?.rating ?? 0;
-    }
- 
-    // ---------- THEMES ----------
-
-    async function playTheme(themeId: number) {
-        const res = await fetch(`/api/themes/${themeId}/play`, { method: 'POST' });
-        setTimeout(() => loadPlaybackState(true), loadStateDelay);
-    }
- 
-    async function createTheme() {
-        if (!newThemeName.trim()) return;
-        await fetch('/api/themes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                name: newThemeName.trim(),
-                cloneFromThemeId: cloneFromThemeId ?? undefined
-            })
-        });
-        newThemeName = '';
-        cloneFromThemeId = null;
-        showNewTheme = false;
-        await loadThemes();
-    }
- 
-    function confirmDeleteTheme(theme: Theme) {
-        deleteTarget = { type: 'theme', id: theme.id, name: theme.name };
-        showDeleteConfirm = true;
-    }
- 
-    // ---------- PLAYLISTS ----------
-
-    async function updateAndPlayThemedPlaylist() {
-        if (!builderThemeId) return;
-        
-        const res = await fetch('/api/playlists/themed/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                themeId: builderThemeId,
-                ratingMin: builderRatingMin,
-                ratingMax: builderRatingMax,
-                sort: builderSort,
-                limitCount: builderLimit
-            })
-        });
-
-        const { uri } = await res.json();
-        await play(uri);
-    }
-
-    async function playSavedPlaylist(playlistId: number) {
-        const res = await fetch(`/api/playlists/${playlistId}/play`, { method: 'POST' });
-    }
- 
-    async function savePlaylist() {
-        if (!savePlaylistName.trim() || !builderThemeId) return;
-        await fetch('/api/playlists', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: savePlaylistName.trim(),
-                themeId: builderThemeId,
-                ratingMin: builderRatingMin,
-                ratingMax: builderRatingMax,
-                sort: builderSort,
-                limitCount: builderLimit,
-                isDynamic: savePlaylistDynamic
-            })
-        });
-        savePlaylistName = '';
-        showSavePlaylist = false;
-        await loadPlaylists();
-    }
- 
-    function confirmDeletePlaylist(playlist: Playlist) {
-        deleteTarget = { type: 'playlist', id: playlist.id, name: playlist.name };
-        showDeleteConfirm = true;
-    }
- 
-    async function confirmDelete() {
-        if (!deleteTarget) return;
-        if (deleteTarget.type === 'theme') {
-            await fetch(`/api/themes/${deleteTarget.id}`, { method: 'DELETE' });
-            await loadThemes();
-            if (selectedId === deleteTarget.id) await selectThemed();
-        } else {
-            await fetch(`/api/playlists/${deleteTarget.id}`, { method: 'DELETE' });
-            await loadPlaylists();
-            if (selectedId === deleteTarget.id) await selectThemed();
-        }
-        showDeleteConfirm = false;
-        deleteTarget = null;
-    }
-    
-    // ---------- SEARCH / SORT ----------
- 
-    async function applySearch() {
-        if (selectedView === 'theme' && selectedId) {
-            await loadThemeSongs(selectedId);
-        }
-    }
- 
-    async function applySort(col: string) {
-        if (sortBy === col) {
-            sortOrder = sortOrder === 'DESC' ? 'ASC' : 'DESC';
-        } else {
-            sortBy = col;
-            sortOrder = 'DESC';
-        }
-        if (selectedView === 'theme' && selectedId) {
-            await loadThemeSongs(selectedId);
-        }
-    }
- 
-    // ---------- SETTINGS ----------
-
-    // Settings state
-    let settingsData = $state<{
-        spotifyClientId: string;
-        secretToken: string;
-        skipPenalty: number;
-        replayBonus: number;
-        autoMin: number;
-        autoMax: number;
-        autoRate: boolean;
-        themedPlaylistUri: string | null;
-        masterPlaylistUri: string | null;
-        localIp: string;
-    } | null>(null);
-
-    let tokenVisible = $state(false);
-    let settingsSaved = $state(false);
-    let masterImported = $state<number | null>(null);
-    let externalAccess = $state(false);
-
-    async function loadSettings() {
-        const [settingsRes, externalRes] = await Promise.all([
-            fetch('/api/settings'),
-            fetch('/api/external-access')
-        ]);
-        settingsData = await settingsRes.json();
-        const { externalAccessEnabled } = await externalRes.json();
-        externalAccess = externalAccessEnabled;
-    }
-
-    async function saveSettings() {
-        if (!settingsData) return;
-        await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                spotifyClientId: settingsData.spotifyClientId,
-                skipPenalty: settingsData.skipPenalty,
-                replayBonus: settingsData.replayBonus,
-                autoMin: settingsData.autoMin,
-                autoMax: settingsData.autoMax,
-                autoRate: settingsData.autoRate
-            })
-        });
-        settingsSaved = true;
-        setTimeout(() => settingsSaved = false, 2000);
-    }
-
-    async function saveThemedPlaylist() {
-        if (!settingsData?.themedPlaylistUri) return;
-        await fetch('/api/settings/themed-playlist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uri: settingsData.themedPlaylistUri })
-        });
-    }
-
-    async function saveMasterPlaylist() {
-        if (!settingsData?.masterPlaylistUri) return;
-        const res = await fetch('/api/settings/master-playlist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uri: settingsData.masterPlaylistUri })
-        });
-        const { imported } = await res.json();
-        masterImported = imported;
-        setTimeout(() => masterImported = null, 3000);
-    }
-
-    async function regenerateToken() {
-        const res = await fetch('/api/settings/regenerate-token', { method: 'POST' });
-        const { secretToken } = await res.json();
-        if (settingsData) settingsData.secretToken = secretToken;
-    }
-
-    async function toggleExternalAccess() {
-        const res = await fetch('/api/external-access/toggle', { method: 'POST' });
-        const { externalAccessEnabled } = await res.json();
-        externalAccess = externalAccessEnabled;
-    }
-
-    async function spotifyLogin() {
-        window.location.href = '/api/spotify/auth';
     }
 
     // ---------- HELPERS ----------
- 
+
     function formatTime(ms: number): string {
         const total = Math.floor(ms / 1000);
         const m = Math.floor(total / 60);
         const s = total % 60;
         return `${m}:${s.toString().padStart(2, '0')}`;
     }
- 
-    function progressPercent(): number {
-        return Math.min((playbackState.progress_ms / playbackState.duration_ms) * 100, 100);
-    }
- 
-    function getDefaultTheme(): Theme | undefined {
-        return themes.find(t => t.is_default === 1);
-    }
- 
-    function getNonDefaultThemes(): Theme[] {
-        return themes.filter(t => t.is_default === 0).sort((a, b) => a.name.localeCompare(b.name));
-    }
+
 </script>
  
 <svelte:head>
@@ -704,49 +91,52 @@ todo: sort everything in all files, code is a bit disorganized
  
 <div class="app"
     style="
-        --left-width: {leftOpen ? '220px' : '40px'};
-        --right-width: {rightOpen ? '220px' : '40px'};
+        --left-width: {NavigatorState.leftOpen ? '220px' : '40px'};
+        --right-width: {NavigatorState.rightOpen ? '220px' : '40px'};
     "
 >
+    <!-- <audio id="player" style="display:none" autoplay></audio> todo: may need but probably not -->
+    <audio id="silent-player" style="display:none" autoplay></audio>
+
     <div class="bg-grid"></div>
 
     <!-- LEFT SIDEBAR -->
-    <aside class="sidebar-left {leftOpen ? '' : 'collapsed'}">
-        <button class="sidebar-toggle left" onclick={toggleLeft} aria-label="Toggle left sidebar">
-            {leftOpen ? '‹' : '›'}
+    <aside class="sidebar-left {NavigatorState.leftOpen ? '' : 'collapsed'}">
+        <button class="sidebar-toggle left" onclick={() => NavigatorState.toggleLeft()} aria-label="Toggle left sidebar">
+            {NavigatorState.leftOpen ? '‹' : '›'}
         </button>
         
-        {#if leftOpen}
+        {#if NavigatorState.leftOpen}
             <div class="sidebar-top-box">
                 <div class="appname">SORTY</div>
             </div>
 
             <div class="scroll-box">
                 <button
-                    class="sidebar-item themed {selectedView === 'themed' ? 'active' : ''}"
-                    onclick={selectThemed}
+                    class="sidebar-item themed {NavigatorState.selectedView === 'themed' ? 'active' : ''}"
+                    onclick={() => navigatorController.selectThemed()}
                 >
                     <span class="item-icon">⚡</span>
                     <span class="item-label">Themed Playlist</span>
                 </button>
 
                 <div class="section">
-                    <button class="section-header" onclick={() => playlistsOpen = !playlistsOpen}>
-                        <span class="chevron {playlistsOpen ? 'open' : ''}">›</span>
+                    <button class="section-header" onclick={() => NavigatorState.playlistsOpen = !NavigatorState.playlistsOpen}>
+                        <span class="chevron {NavigatorState.playlistsOpen ? 'open' : ''}">›</span>
                         <span>Saved Playlists</span>
                     </button>
-                    {#if playlistsOpen}
+                    {#if NavigatorState.playlistsOpen}
                         <div class="section-items">
-                            {#each playlists as playlist}
+                            {#each LibraryState.playlists as playlist}
                                 <div class="sidebar-item-row">
                                     <button
-                                        class="sidebar-item {selectedView === 'playlist' && selectedId === playlist.id ? 'active' : ''}"
-                                        onclick={() => selectPlaylist(playlist)}
+                                        class="sidebar-item {NavigatorState.selectedView === 'playlist' && NavigatorState.selectedId === playlist.id ? 'active' : ''}"
+                                        onclick={() => navigatorController.selectPlaylist(playlist)}
                                     >
                                         <span class="item-icon">◈</span>
                                         <span class="item-label">{playlist.name}</span>
                                     </button>
-                                    <button class="play-btn" onclick={() => playSavedPlaylist(playlist.id)}>▶</button>
+                                    <button class="play-btn" onclick={() => playerController.playSavedPlaylist(playlist.id)}>▶</button>
                                 </div>
                             {/each}
                         </div>
@@ -754,46 +144,46 @@ todo: sort everything in all files, code is a bit disorganized
                 </div>
 
                 <div class="section">
-                    <button class="section-header" onclick={() => themesOpen = !themesOpen}>
-                        <span class="chevron {themesOpen ? 'open' : ''}">›</span>
+                    <button class="section-header" onclick={() => NavigatorState.themesOpen = !NavigatorState.themesOpen}>
+                        <span class="chevron {NavigatorState.themesOpen ? 'open' : ''}">›</span>
                         <span>Themes</span>
                     </button>
-                    {#if themesOpen}
+                    {#if NavigatorState.themesOpen}
                         <div class="section-items">
-                            {#if getDefaultTheme()}
-                                {@const theme = getDefaultTheme()!}
+                            {#if LibraryState.getDefaultTheme()}
+                                {@const theme = LibraryState.getDefaultTheme()!}
                                 <div class="sidebar-item-row">
                                     <button
-                                        class="sidebar-item {selectedView === 'theme' && selectedId === theme.id ? 'active' : ''}"
-                                        onclick={() => selectTheme(theme)}
+                                        class="sidebar-item {NavigatorState.selectedView === 'theme' && NavigatorState.selectedId === theme.id ? 'active' : ''}"
+                                        onclick={() => navigatorController.selectTheme(theme)}
                                     >
                                         <span class="item-icon">★</span>
                                         <span class="item-label">{theme.name}</span>
                                     </button>
-                                    <button class="play-btn" onclick={() => playTheme(theme.id)}>▶</button>
+                                    <button class="play-btn" onclick={() => playerController.playTheme(theme.id)}>▶</button>
                                 </div>
                             {/if}
-                            {#each getNonDefaultThemes() as theme}
+                            {#each LibraryState.getNonDefaultThemes() as theme}
                                 <div class="sidebar-item-row">
                                     <button
-                                        class="sidebar-item {selectedView === 'theme' && selectedId === theme.id ? 'active' : ''}"
-                                        onclick={() => selectTheme(theme)}
+                                        class="sidebar-item {NavigatorState.selectedView === 'theme' && NavigatorState.selectedId === theme.id ? 'active' : ''}"
+                                        onclick={() => navigatorController.selectTheme(theme)}
                                     >
                                         <span class="item-icon">◆</span>
                                         <span class="item-label">{theme.name}</span>
                                     </button>
-                                    <button class="play-btn" onclick={() => playTheme(theme.id)}>▶</button>
+                                    <button class="play-btn" onclick={() => playerController.playTheme(theme.id)}>▶</button>
                                 </div>
                             {/each}
-                            <button class="add-btn" onclick={() => showNewTheme = true}>+ Add Theme</button>
+                            <button class="add-btn" onclick={() => NavigatorState.showNewTheme = true}>+ Add Theme</button>
                         </div>
                     {/if}
                 </div>
 
                 <div class="sidebar-footer">
                     <button 
-                        class="sidebar-item {selectedView === 'settings' ? 'active' : ''}"
-                        onclick={() => selectSettings()}
+                        class="sidebar-item {NavigatorState.selectedView === 'settings' ? 'active' : ''}"
+                        onclick={() => navigatorController.selectSettings()}
                     >
                         <span class="item-icon">⚙</span>
                         <span class="item-label">Settings</span>
@@ -807,78 +197,82 @@ todo: sort everything in all files, code is a bit disorganized
     <main class="main">
         <div class="main-header">
             <div class="main-title-row">
-                <h1 class="main-title">{contentTitle}</h1>
+                <h1 class="main-title">{NavigatorState.contentTitle}</h1>
                 <div class="main-actions">
-                    {#if selectedView === 'theme' && selectedId}
-                        <button class="action-btn" onclick={() => playTheme(selectedId!)}>▶ Play</button>
-                        {#if !themes.find(t => t.id === selectedId)?.is_default}
+                    {#if NavigatorState.selectedView === 'theme' && NavigatorState.selectedId}
+                        <button class="action-btn" onclick={() => playerController.playTheme(NavigatorState.selectedId!)}>▶ Play</button>
+                        {#if !LibraryState.themes.find(t => t.id === NavigatorState.selectedId)?.is_default}
                             <button class="action-btn danger" onclick={() => {
-                                const theme = themes.find(t => t.id === selectedId);
-                                if (theme) confirmDeleteTheme(theme);
+                                const theme = LibraryState.themes.find(t => t.id === NavigatorState.selectedId);
+                                if (theme) NavigatorState.requestDeleteTheme(theme);
                             }}>Delete</button>
                         {/if}
                     {/if}
-                    {#if selectedView === 'playlist' && selectedId}
-                        <button class="action-btn" onclick={() => playSavedPlaylist(selectedId!)}>▶ Play</button>
+                    {#if NavigatorState.selectedView === 'playlist' && NavigatorState.selectedId}
+                        <button class="action-btn" onclick={() => playerController.playSavedPlaylist(NavigatorState.selectedId!)}>▶ Play</button>
                         <button class="action-btn danger" onclick={() => {
-                            const playlist = playlists.find(p => p.id === selectedId);
-                            if (playlist) confirmDeletePlaylist(playlist);
+                            const playlist = LibraryState.playlists.find(p => p.id === NavigatorState.selectedId);
+                            if (playlist) NavigatorState.requestDeletePlaylist(playlist);
                         }}>Delete</button>
                     {/if}
-                    {#if selectedView === 'themed'}
-                        <button class="action-btn" onclick={() => showSavePlaylist = true}>Save Playlist</button>
+                    {#if NavigatorState.selectedView === 'themed'}
+                        <button class="action-btn" onclick={() => NavigatorState.showSavePlaylist = true}>Save Playlist</button>
                     {/if}
                 </div>
             </div>
 
-            {#if selectedView === 'theme'}
+            {#if NavigatorState.selectedView === 'theme'}
                 <div class="search-row">
                     <input
                         class="search-input"
                         type="text"
                         placeholder="Search songs, artists..."
-                        bind:value={search}
-                        oninput={applySearch}
+                        bind:value={LibraryState.search}
+                        oninput={() => navigatorController.applySearch()}
                     />
                     <div class="sort-btns">
-                        <button class="sort-btn {sortBy === 'rating' ? 'active' : ''}" onclick={() => applySort('rating')}>
-                            Rating {sortBy === 'rating' ? (sortOrder === 'DESC' ? '↓' : '↑') : ''}
+                        <button class="sort-btn {LibraryState.sortBy === 'rating' ? 'active' : ''}" onclick={() => navigatorController.applySort('rating')}>
+                            Rating {LibraryState.sortBy === 'rating' ? (LibraryState.sortOrder === 'DESC' ? '↓' : '↑') : ''}
                         </button>
-                        <button class="sort-btn {sortBy === 'name' ? 'active' : ''}" onclick={() => applySort('name')}>
-                            Name {sortBy === 'name' ? (sortOrder === 'DESC' ? '↓' : '↑') : ''}
+                        <button class="sort-btn {LibraryState.sortBy === 'name' ? 'active' : ''}" onclick={() => navigatorController.applySort('name')}>
+                            Name {LibraryState.sortBy === 'name' ? (LibraryState.sortOrder === 'DESC' ? '↓' : '↑') : ''}
                         </button>
-                        <button class="sort-btn {sortBy === 'artist' ? 'active' : ''}" onclick={() => applySort('artist')}>
-                            Artist {sortBy === 'artist' ? (sortOrder === 'DESC' ? '↓' : '↑') : ''}
+                        <button class="sort-btn {LibraryState.sortBy === 'artist' ? 'active' : ''}" onclick={() => navigatorController.applySort('artist')}>
+                            Artist {LibraryState.sortBy === 'artist' ? (LibraryState.sortOrder === 'DESC' ? '↓' : '↑') : ''}
                         </button>
                     </div>
                 </div>
             {/if}
 
-            {#if selectedView === 'themed'}
+            {#if NavigatorState.selectedView === 'themed'}
                 <div class="builder">
-                    <select class="builder-select" bind:value={builderThemeId}>
-                        {#each themes as theme}
+                    <select class="builder-select" bind:value={LibraryState.builderThemeId}>
+                        {#each LibraryState.themes as theme}
                             <option value={theme.id}>{theme.name}</option>
                         {/each}
                     </select>
-                    <input class="builder-input" type="number" placeholder="Min rating" bind:value={builderRatingMin} />
-                    <input class="builder-input" type="number" placeholder="Max rating" bind:value={builderRatingMax} />
-                    <select class="builder-select" bind:value={builderSort}>
+                    <input class="builder-input" type="number" placeholder="Min rating" bind:value={LibraryState.builderRatingMin} />
+                    <input class="builder-input" type="number" placeholder="Max rating" bind:value={LibraryState.builderRatingMax} />
+                    <select class="builder-select" bind:value={LibraryState.builderSort}>
                         <option value="top">Top</option>
                         <option value="bottom">Bottom</option>
                         <option value="random">Random</option>
                     </select>
-                    <input class="builder-input" type="number" placeholder="Limit" bind:value={builderLimit} />
-                    <button class="action-btn" onclick={updateAndPlayThemedPlaylist}>▶ Play</button>
-                    <button class="action-btn" onclick={() => showSavePlaylist = true}>Save</button>
+                    <input class="builder-input" type="number" placeholder="Limit" bind:value={LibraryState.builderLimit} />
+                    <button class="action-btn" onclick={async () => {
+                        // todo: not sure if this is the best way to do this but i do need to make sure that the playlist updates before the playlist plays so idk.
+                        let uri = await libraryController.updateThemedPlaylist();
+                        if (uri) playerController.play(uri);
+                    }}>▶ Play</button>
+                    <button class="action-btn" onclick={() => NavigatorState.showSavePlaylist = true}>Save</button>
                 </div>
             {/if}
         </div>
 
         <div class="scroll-box">
-            {#if selectedView === 'settings'}
+            {#if NavigatorState.selectedView === 'settings'}
                 <div class="settings-content">
-                    {#if settingsData}
+                    {#if LibraryState.settingsData}
 
                         <!-- SPOTIFY -->
                         <div class="settings-section">
@@ -890,11 +284,11 @@ todo: sort everything in all files, code is a bit disorganized
                                     class="settings-input"
                                     type="text"
                                     placeholder="Spotify app client ID"
-                                    bind:value={settingsData.spotifyClientId}
+                                    bind:value={LibraryState.settingsData.spotifyClientId}
                                 />
                             </div>
 
-                            <button class="settings-btn spotify" onclick={spotifyLogin}>
+                            <button class="settings-btn spotify" onclick={() => libraryController.spotifyLogin()}>
                                 Connect Spotify Account
                             </button>
 
@@ -905,9 +299,9 @@ todo: sort everything in all files, code is a bit disorganized
                                         class="settings-input"
                                         type="text"
                                         placeholder="spotify:playlist:..."
-                                        bind:value={settingsData.themedPlaylistUri}
+                                        bind:value={LibraryState.settingsData.themedPlaylistUri}
                                     />
-                                    <button class="settings-btn" onclick={saveThemedPlaylist}>Save</button>
+                                    <button class="settings-btn" onclick={() => libraryController.saveThemedPlaylist()}>Save</button>
                                 </div>
                                 <p class="settings-hint">Point to an existing Spotify playlist to use as your themed playlist</p>
                             </div>
@@ -919,13 +313,14 @@ todo: sort everything in all files, code is a bit disorganized
                                         class="settings-input"
                                         type="text"
                                         placeholder="spotify:playlist:..."
-                                        bind:value={settingsData.masterPlaylistUri}
+                                        bind:value={LibraryState.settingsData.masterPlaylistUri}
                                     />
-                                    <button class="settings-btn" onclick={saveMasterPlaylist}>Import</button>
+                                    <!-- import doesn't seem to be working to add missing songs atm -->
+                                    <button class="settings-btn" onclick={() => libraryController.saveMasterPlaylist()}>Import</button>
                                 </div>
                                 <p class="settings-hint">
-                                    {#if masterImported !== null}
-                                        ✓ Imported {masterImported} new songs
+                                    {#if LibraryState.masterImported !== null}
+                                        ✓ Imported {LibraryState.masterImported} new songs
                                     {:else}
                                         All songs from this playlist will be added to your database with rating 0
                                     {/if}
@@ -940,8 +335,8 @@ todo: sort everything in all files, code is a bit disorganized
                             <div class="settings-field">
                                 <p class="settings-label">Local Address</p>
                                 <div class="settings-address">
-                                    <span class="settings-address-text">{settingsData.localIp}:7878</span>
-                                    <button class="copy-btn" onclick={() => navigator.clipboard.writeText(`${settingsData!.localIp}:7878`)}>Copy</button>
+                                    <span class="settings-address-text">{LibraryState.settingsData.localIp}:7878</span>
+                                    <button class="copy-btn" onclick={() => navigator.clipboard.writeText(`${LibraryState.settingsData!.localIp}:7878`)}>Copy</button>
                                 </div>
                             </div>
 
@@ -952,8 +347,8 @@ todo: sort everything in all files, code is a bit disorganized
                                         <p class="settings-hint">Allow connections from outside your local network</p>
                                     </div>
                                     <button
-                                        class="toggle {externalAccess ? 'on' : ''}"
-                                        onclick={toggleExternalAccess}
+                                        class="toggle {LibraryState.externalAccess ? 'on' : ''}"
+                                        onclick={() => libraryController.toggleExternalAccess()}
                                         aria-label="Toggle external access"
                                     >
                                         <span class="toggle-knob"></span>
@@ -961,23 +356,23 @@ todo: sort everything in all files, code is a bit disorganized
                                 </div>
                             </div>
 
-                            {#if externalAccess}
+                            {#if LibraryState.externalAccess}
                                 <div class="settings-field">
                                     <p class="settings-label">Access Token</p>
                                     <div class="settings-input-row">
                                         <input
                                             class="settings-input"
-                                            type={tokenVisible ? 'text' : 'password'}
-                                            value={settingsData.secretToken}
+                                            type={LibraryState.tokenVisible ? 'text' : 'password'}
+                                            value={LibraryState.settingsData.secretToken}
                                             readonly
                                         />
-                                        <button class="settings-icon-btn" onclick={() => tokenVisible = !tokenVisible}>
-                                            {tokenVisible ? '🙈' : '👁'}
+                                        <button class="settings-icon-btn" onclick={() => LibraryState.tokenVisible = !LibraryState.tokenVisible}>
+                                            {LibraryState.tokenVisible ? '🙈' : '👁'}
                                         </button>
-                                        <button class="settings-icon-btn" onclick={() => navigator.clipboard.writeText(settingsData!.secretToken)}>
+                                        <button class="settings-icon-btn" onclick={() => navigator.clipboard.writeText(LibraryState.settingsData!.secretToken)}>
                                             ⎘
                                         </button>
-                                        <button class="settings-icon-btn danger" onclick={regenerateToken}>↺</button>
+                                        <button class="settings-icon-btn danger" onclick={() => libraryController.regenerateToken()}>↺</button>
                                     </div>
                                     <p class="settings-hint">Share this token with devices you want to allow access</p>
                                 </div>
@@ -996,8 +391,8 @@ todo: sort everything in all files, code is a bit disorganized
                                         <p class="settings-hint">Automatically apply skip/replay adjustments</p>
                                     </div>
                                     <button
-                                        class="toggle {settingsData.autoRate ? 'on' : ''}"
-                                        onclick={() => settingsData!.autoRate = !settingsData!.autoRate}
+                                        class="toggle {LibraryState.settingsData.autoRate ? 'on' : ''}"
+                                        onclick={() => LibraryState.settingsData!.autoRate = !LibraryState.settingsData!.autoRate}
                                         aria-label="Toggle auto-rating"
                                     >
                                         <span class="toggle-knob"></span>
@@ -1006,15 +401,15 @@ todo: sort everything in all files, code is a bit disorganized
                             </div>
 
                             <div class="settings-field">
-                                <p class="settings-label">Skip Penalty <span class="value-badge">{settingsData.skipPenalty}</span></p>
+                                <p class="settings-label">Skip Penalty <span class="value-badge">{LibraryState.settingsData.skipPenalty}</span></p>
                                 <input
                                     type="range"
                                     min="-5"
                                     max="0"
                                     step="1"
-                                    bind:value={settingsData.skipPenalty}
+                                    bind:value={LibraryState.settingsData.skipPenalty}
                                     class="settings-slider"
-                                    style="--fill: {((settingsData.skipPenalty + 5) / 5) * 100}%"
+                                    style="--fill: {((LibraryState.settingsData.skipPenalty + 5) / 5) * 100}%"
                                 />
                                 <div class="range-labels">
                                     <span>-5</span>
@@ -1023,15 +418,15 @@ todo: sort everything in all files, code is a bit disorganized
                             </div>
 
                             <div class="settings-field">
-                                <p class="settings-label">Replay Bonus <span class="value-badge">{settingsData.replayBonus}</span></p>
+                                <p class="settings-label">Replay Bonus <span class="value-badge">{LibraryState.settingsData.replayBonus}</span></p>
                                 <input
                                     type="range"
                                     min="0"
                                     max="5"
                                     step="1"
-                                    bind:value={settingsData.replayBonus}
+                                    bind:value={LibraryState.settingsData.replayBonus}
                                     class="settings-slider"
-                                    style="--fill: {(settingsData.replayBonus / 5) * 100}%"
+                                    style="--fill: {(LibraryState.settingsData.replayBonus / 5) * 100}%"
                                 />
                                 <div class="range-labels">
                                     <span>0</span>
@@ -1040,15 +435,15 @@ todo: sort everything in all files, code is a bit disorganized
                             </div>
 
                             <div class="settings-field">
-                                <p class="settings-label">Min Allowable Rating <span class="value-badge">{settingsData.autoMin}</span></p>
+                                <p class="settings-label">Min Allowable Rating <span class="value-badge">{LibraryState.settingsData.autoMin}</span></p>
                                 <input
                                     type="range"
                                     min="-10"
                                     max="10"
                                     step="1"
-                                    bind:value={settingsData.autoMin}
+                                    bind:value={LibraryState.settingsData.autoMin}
                                     class="settings-slider"
-                                    style="--fill: {((settingsData.autoMin + 100) / 100) * 100}%"
+                                    style="--fill: {((LibraryState.settingsData.autoMin + 100) / 100) * 100}%"
                                 />
                                 <div class="range-labels">
                                     <span>-10</span>
@@ -1057,15 +452,15 @@ todo: sort everything in all files, code is a bit disorganized
                             </div>
 
                             <div class="settings-field">
-                                <p class="settings-label">Max Allowable Rating <span class="value-badge">{settingsData.autoMax}</span></p>
+                                <p class="settings-label">Max Allowable Rating <span class="value-badge">{LibraryState.settingsData.autoMax}</span></p>
                                 <input
                                     type="range"
                                     min="-10"
                                     max="10"
                                     step="1"
-                                    bind:value={settingsData.autoMax}
+                                    bind:value={LibraryState.settingsData.autoMax}
                                     class="settings-slider"
-                                    style="--fill: {(settingsData.autoMax / 100) * 100}%"
+                                    style="--fill: {(LibraryState.settingsData.autoMax / 100) * 100}%"
                                 />
                                 <div class="range-labels">
                                     <span>-10</span>
@@ -1076,8 +471,8 @@ todo: sort everything in all files, code is a bit disorganized
 
                         <!-- SAVE -->
                         <div class="settings-save">
-                            <button class="settings-btn primary {settingsSaved ? 'saved' : ''}" onclick={saveSettings}>
-                                {settingsSaved ? '✓ Saved' : 'Save Changes'}
+                            <button class="settings-btn primary {LibraryState.settingsSaved ? 'saved' : ''}" onclick={() => libraryController.saveSettings()}>
+                                {LibraryState.settingsSaved ? '✓ Saved' : 'Save Changes'}
                             </button>
                         </div>
 
@@ -1087,7 +482,7 @@ todo: sort everything in all files, code is a bit disorganized
                 </div>
             {:else}
                 <div class="song-list">
-                    {#if songs.length === 0}
+                    {#if LibraryState.songs.length === 0}
                         <div class="empty">No songs found</div>
                     {:else}
                         <div class="song-list-header">
@@ -1095,7 +490,7 @@ todo: sort everything in all files, code is a bit disorganized
                             <span class="col-artist">Artist</span>
                             <span class="col-rating">Rating</span>
                         </div>
-                        {#each songs as song}
+                        {#each LibraryState.songs as song}
                             <div class="song-row">
                                 <span class="col-title song-title">{song.title}</span>
                                 <span class="col-artist song-artist">{song.artist}</span>
@@ -1109,16 +504,16 @@ todo: sort everything in all files, code is a bit disorganized
     </main>
 
     <!-- RIGHT SIDEBAR -->
-    <aside class="sidebar-right {rightOpen ? '' : 'collapsed'}">
-        <button class="sidebar-toggle right" onclick={toggleRight} aria-label="Toggle right sidebar">
-            {rightOpen ? '›' : '‹'}
+    <aside class="sidebar-right {NavigatorState.rightOpen ? '' : 'collapsed'}">
+        <button class="sidebar-toggle right" onclick={() => NavigatorState.toggleRight()} aria-label="Toggle right sidebar">
+            {NavigatorState.rightOpen ? '›' : '‹'}
         </button>
 
-        {#if rightOpen}
+        {#if NavigatorState.rightOpen}
             <div class="sidebar-top-box"></div>
             <div class="now-playing">
-                {#if playbackState?.item?.type == 'track'}
-                    {@const track = playbackState.item as Track}
+                {#if PlaybackState?.item?.type == 'track'}
+                    {@const track = PlaybackState.item as Track}
                     {#if track.album?.images?.[0]?.url}
                         <img class="album-art" src={track.album.images[0].url} alt="Album art" />
                     {:else}
@@ -1126,8 +521,8 @@ todo: sort everything in all files, code is a bit disorganized
                     {/if}
                     <p class="np-title">{track.name}</p>
                     <p class="np-artist">{track.artists?.map(a => a.name).join(', ') ?? ''}</p>
-                {:else if playbackState?.item?.type == 'episode'}
-                    {@const episode = playbackState.item as Episode}
+                {:else if PlaybackState?.item?.type == 'episode'}
+                    {@const episode = PlaybackState.item as Episode}
                     {#if episode.images?.[0]?.url}
                         <img class="album-art" src={episode.images[0].url} alt="Episode art" />
                     {:else}
@@ -1145,28 +540,28 @@ todo: sort everything in all files, code is a bit disorganized
             <div class="divider"></div>
 
             <div class="scroll-box">
-                {#if getDefaultTheme()}
-                    {@const theme = getDefaultTheme()!}
+                {#if LibraryState.getDefaultTheme()}
+                    {@const theme = LibraryState.getDefaultTheme()!}
                     <div class="theme-rating-row">
                         <span class="theme-rating-name">{theme.name}</span>
                         <div class="rating-controls">
-                            <button class="rating-btn" onclick={() => rate(theme.id, -3)}>-3</button>
-                            <button class="rating-btn" onclick={() => rate(theme.id, -1)}>-1</button>
-                            <span class="rating-value">{getRating(theme.id)}</span>
-                            <button class="rating-btn" onclick={() => rate(theme.id, 1)}>+1</button>
-                            <button class="rating-btn" onclick={() => rate(theme.id, 3)}>+3</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, -3)}>-3</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, -1)}>-1</button>
+                            <span class="rating-value">{LibraryState.getRating(theme.id)}</span>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, 1)}>+1</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, 3)}>+3</button>
                         </div>
                     </div>
                 {/if}
-                {#each getNonDefaultThemes() as theme}
+                {#each LibraryState.getNonDefaultThemes() as theme}
                     <div class="theme-rating-row">
                         <span class="theme-rating-name">{theme.name}</span>
                         <div class="rating-controls">
-                            <button class="rating-btn" onclick={() => rate(theme.id, -3)}>-3</button>
-                            <button class="rating-btn" onclick={() => rate(theme.id, -1)}>-1</button>
-                            <span class="rating-value">{getRating(theme.id)}</span>
-                            <button class="rating-btn" onclick={() => rate(theme.id, 1)}>+1</button>
-                            <button class="rating-btn" onclick={() => rate(theme.id, 3)}>+3</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, -3)}>-3</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, -1)}>-1</button>
+                            <span class="rating-value">{LibraryState.getRating(theme.id)}</span>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, 1)}>+1</button>
+                            <button class="rating-btn" onclick={() => libraryController.rate(theme.id, 3)}>+3</button>
                         </div>
                     </div>
                 {/each}
@@ -1178,12 +573,12 @@ todo: sort everything in all files, code is a bit disorganized
     <footer class="bottom-bar">
         <!-- LEFT: Track info -->
         <div class="track-info">
-            {#if playbackState?.item?.type === 'track'}
-                {@const track = playbackState.item as Track}
+            {#if PlaybackState?.item?.type === 'track'}
+                {@const track = PlaybackState.item as Track}
                 <p class="track-name">{track.name}</p>
                 <p class="track-artist">{track.artists?.map(a => a.name).join(', ') ?? '—'}</p>
-            {:else if playbackState?.item?.type === 'episode'}
-                {@const episode = playbackState.item as Episode}
+            {:else if PlaybackState?.item?.type === 'episode'}
+                {@const episode = PlaybackState.item as Episode}
                 <p class="track-name">{episode.name}</p>
                 <p class="track-artist">{episode?.show?.name ?? ''}</p>
             {:else}
@@ -1195,24 +590,24 @@ todo: sort everything in all files, code is a bit disorganized
         <!-- CENTER: Controls + Progress -->
         <div class="center-section">
             <div class="playback-controls">
-                <button class="ctrl-btn" onclick={skipPrevious}>⏮</button>
-                <button class="ctrl-btn play" onclick={() => playbackState?.is_playing ? pause() : play()}>
-                    {playbackState?.is_playing ? '⏸' : '▶'}
+                <button class="ctrl-btn" onclick={() => playerController.skipPrevious()}>⏮</button>
+                <button class="ctrl-btn play" onclick={() => PlaybackState?.is_playing ? playerController.pause() : playerController.play()}>
+                    {PlaybackState?.is_playing ? '⏸' : '▶'}
                 </button>
-                <button class="ctrl-btn" onclick={skipNext}>⏭</button>
+                <button class="ctrl-btn" onclick={() => playerController.skipNext()}>⏭</button>
             </div>
             <div class="progress-section">
-                <span class="time">{playbackState ? formatTime(playbackState.progress_ms) : '--:--'}</span>
+                <span class="time">{PlaybackState ? formatTime(PlaybackState.progress_ms) : '--:--'}</span>
                 <input
                     type="range"
                     min="0"
-                    max={playbackState?.item?.duration_ms ?? 100}
-                    bind:value={playbackState!.progress_ms}
-                    onchange={() => seek((playbackState!.progress_ms / (playbackState?.item?.duration_ms ?? 1)) * 100)}
+                    max={PlaybackState?.item?.duration_ms ?? 100}
+                    bind:value={PlaybackState!.progress_ms}
+                    onchange={() => playerController.seek((PlaybackState!.progress_ms / (PlaybackState?.item?.duration_ms ?? 1)) * 100)}
                     class="progress-bar"
-                    style="--fill: {progressPercent()}%"
+                    style="--fill: {PlaybackState.progressPercent()}%"
                 />
-                <span class="time">{playbackState ? formatTime(playbackState.item?.duration_ms ?? 0) : '--:--'}</span>
+                <span class="time">{PlaybackState ? formatTime(PlaybackState.item?.duration_ms ?? 0) : '--:--'}</span>
             </div>
         </div>
 
@@ -1220,27 +615,27 @@ todo: sort everything in all files, code is a bit disorganized
         <div class="bottom-right">
             <div class="volume-control">
                 <span class="volume-icon">
-                    {#if !playbackState?.volume || playbackState.volume === 0}🔇
-                    {:else if playbackState.volume < 50}🔉
+                    {#if !PlaybackState?.volume || PlaybackState.volume === 0}🔇
+                    {:else if PlaybackState.volume < 50}🔉
                     {:else}🔊{/if}
                 </span>
                 <input
                     type="range"
                     min="0"
                     max="100"
-                    bind:value={playbackState!.volume}
-                    onchange={() => setVolume(playbackState!.volume)}
+                    bind:value={PlaybackState!.volume}
+                    onchange={() => playerController.setVolume(PlaybackState!.volume)}
                     class="volume-bar"
-                    style="--fill: {playbackState?.volume ?? 0}%"
+                    style="--fill: {PlaybackState?.volume ?? 0}%"
                 />
             </div>
-            <button class="ctrl-btn device" onclick={async () => { await loadDevices(); showDevicePicker = true; }}>
+            <button class="ctrl-btn device" onclick={async () => { await playerController.loadDevices(); NavigatorState.showDevicePicker = true; }}>
                 💻
             </button>
-            <button onclick={async () => { await initAudio(socket); }}>
+            <button onclick={async () => { await playerController.initAudio(socket); }}>
                 E
             </button>
-            <button onclick={async () => { await stopAudio(); }}>
+            <button onclick={async () => { await playerController.stopAudio(); }}>
                 D
             </button>
         </div>
@@ -1249,100 +644,116 @@ todo: sort everything in all files, code is a bit disorganized
  
 <!-- MODALS -->
 
-{#if showNewTheme}
-    <div class="modal-overlay" role="button" tabindex="0" onclick={() => showNewTheme = false} onkeydown={(e) => e.key === 'Escape' && (showNewTheme = false)}>
+{#if NavigatorState.showNewTheme}
+    <div class="modal-overlay" role="button" tabindex="0" onclick={() => NavigatorState.showNewTheme = false} onkeydown={(e) => e.key === 'Escape' && (NavigatorState.showNewTheme = false)}>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
             <h3 class="modal-title">New Theme</h3>
-            <input
-                class="modal-input"
-                type="text"
-                placeholder="Theme name"
-                bind:value={newThemeName}
-                onkeydown={(e) => e.key === 'Enter' && createTheme()}
-            />
-            <div class="field">
-                <p class="field-label">Clone Ratings From</p>
-                <select class="modal-select" bind:value={cloneFromThemeId}>
-                    <option value={null}>None</option>
-                    {#each themes as theme}
-                        <option value={theme.id}>{theme.name}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button class="modal-btn" onclick={() => showNewTheme = false}>Cancel</button>
-                <button class="modal-btn primary" onclick={createTheme}>Create</button>
-            </div>
+            <form onsubmit={(e) => {
+                e.preventDefault();
+                const data = new FormData(e.currentTarget as HTMLFormElement);
+                const name = data.get('themeName') as string;
+                const cloneFromThemeId = data.get('cloneFromThemeId') ? Number(data.get('cloneFromThemeId')) : null;
+
+                if (!name.trim()) return;
+                libraryController.createTheme(name.trim(), cloneFromThemeId);
+                NavigatorState.showNewTheme = false;
+            }}>
+                <input
+                    class="modal-input"
+                    type="text"
+                    name="themeName"
+                    placeholder="Theme name"
+                />
+                <div class="field">
+                    <p class="field-label">Clone Ratings From</p>
+                    <select class="modal-select" name="cloneFromThemeId">
+                        <option value="">None</option>
+                        {#each LibraryState.themes as theme}
+                            <option value={theme.id}>{theme.name}</option>
+                        {/each}
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="modal-btn" onclick={() => NavigatorState.showNewTheme = false}>Cancel</button>
+                    <button type="submit" class="modal-btn primary">Create</button>
+                </div>
+            </form>
         </div>
     </div>
 {/if}
 
-{#if showSavePlaylist}
-    <div class="modal-overlay" role="button" tabindex="0" onclick={() => showSavePlaylist = false} onkeydown={(e) => e.key === 'Escape' && (showSavePlaylist = false)}>
+{#if NavigatorState.showSavePlaylist}
+    <div class="modal-overlay" role="button" tabindex="0" onclick={() => NavigatorState.showSavePlaylist = false} onkeydown={(e) => e.key === 'Escape' && (NavigatorState.showSavePlaylist = false)}>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-            <h3 class="modal-title">Save Playlist</h3>
-            <input
-                class="modal-input"
-                type="text"
-                placeholder="Playlist name"
-                bind:value={savePlaylistName}
-            />
-            <div class="toggle-row">
-                <span class="toggle-label">Dynamic</span>
-                <button
-                    aria-label="Toggle Dynamic"
-                    class="toggle {savePlaylistDynamic ? 'on' : ''}"
-                    onclick={() => savePlaylistDynamic = !savePlaylistDynamic}
-                >
-                    <span class="toggle-knob"></span>
-                </button>
-            </div>
-            <p class="modal-hint">
-                {savePlaylistDynamic
-                    ? 'Dynamic: updates automatically as ratings change'
-                    : 'Frozen: saves current songs, does not update'}
-            </p>
-            <div class="modal-actions">
-                <button class="modal-btn" onclick={() => showSavePlaylist = false}>Cancel</button>
-                <button class="modal-btn primary" onclick={savePlaylist}>Save</button>
-            </div>
+            <form onsubmit={(e) => {
+                e.preventDefault();
+                const data = new FormData(e.currentTarget as HTMLFormElement);
+                const name = data.get('playlistName') as string;
+                const isDynamic = data.get('isDynamic') === 'on';
+
+                libraryController.savePlaylist(name, isDynamic);
+                NavigatorState.showSavePlaylist = false;
+            }}>
+                <h3 class="modal-title">Save Playlist</h3>
+                <input
+                    class="modal-input"
+                    type="text"
+                    name="playlistName"
+                    placeholder="Playlist name"
+                />
+                <label class="toggle-row">
+                    <span class="toggle-label">Dynamic</span>
+                    <input type="checkbox" name="isDynamic" class="toggle-checkbox" checked />
+                    <span class="toggle">
+                        <span class="toggle-knob"></span>
+                    </span>
+                </label>
+                <p class="modal-hint">
+                    <span class="dynamic-hint">Dynamic: updates automatically as ratings change</span>
+                    <span class="frozen-hint">Frozen: saves current songs, does not update</span>
+                </p>
+                <div class="modal-actions">
+                    <button type="button" class="modal-btn" onclick={() => NavigatorState.showSavePlaylist = false}>Cancel</button>
+                    <button type="submit" class="modal-btn primary">Save</button>
+                </div>
+            </form>
         </div>
     </div>
 {/if}
 
-{#if showDeleteConfirm && deleteTarget}
-    <div class="modal-overlay" role="button" tabindex="0" onclick={() => showDeleteConfirm = false} onkeydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}>
+{#if NavigatorState.showDeleteConfirm && NavigatorState.deleteTarget}
+    <div class="modal-overlay" role="button" tabindex="0" onclick={() => NavigatorState.showDeleteConfirm = false} onkeydown={(e) => e.key === 'Escape' && (NavigatorState.showDeleteConfirm = false)}>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-            <h3 class="modal-title">Delete {deleteTarget.type === 'theme' ? 'Theme' : 'Playlist'}</h3>
+            <h3 class="modal-title">Delete {NavigatorState.deleteTarget.type === 'theme' ? 'Theme' : 'Playlist'}</h3>
             <p class="modal-body">
-                Are you sure you want to delete <strong>{deleteTarget.name}</strong>?
-                {#if deleteTarget.type === 'theme'}
+                Are you sure you want to delete <strong>{NavigatorState.deleteTarget.name}</strong>?
+                {#if NavigatorState.deleteTarget.type === 'theme'}
                     This will also delete all ratings for this theme.
                 {/if}
                 This cannot be undone.
             </p>
             <div class="modal-actions">
-                <button class="modal-btn" onclick={() => showDeleteConfirm = false}>Cancel</button>
-                <button class="modal-btn danger" onclick={confirmDelete}>Delete</button>
+                <button class="modal-btn" onclick={() => NavigatorState.showDeleteConfirm = false}>Cancel</button>
+                <button class="modal-btn danger" onclick={() => navigatorController.confirmDelete()}>Delete</button>
             </div>
         </div>
     </div>
 {/if}
         
-{#if showDevicePicker}
-    <div class="modal-overlay" role="button" tabindex="0" onclick={() => showDevicePicker = false} onkeydown={(e) => e.key === 'Escape' && (showDevicePicker = false)}>
+{#if NavigatorState.showDevicePicker}
+    <div class="modal-overlay" role="button" tabindex="0" onclick={() => NavigatorState.showDevicePicker = false} onkeydown={(e) => e.key === 'Escape' && (NavigatorState.showDevicePicker = false)}>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
             <h3 class="modal-title">Select Device</h3>
-            {#each devices as device}
+            {#each PlaybackState.devices as device}
                 <button
-                    class="device-row {playbackState?.device?.id === device.id ? 'active' : ''}"
-                    onclick={() => connectDevice(device.id)}
+                    class="device-row {PlaybackState?.device?.id === device.id ? 'active' : ''}"
+                    onclick={() => {playerController.connectDevice(socket, device.id!); NavigatorState.showDevicePicker = false;}}
                 >
                     <span class="device-name">{device.name}</span>
                     <span class="device-type">{device.type}</span>
                 </button>
             {/each}
-            {#if devices.length === 0}
+            {#if PlaybackState.devices.length === 0}
                 <p class="modal-body">No devices found. Open Spotify on a device first.</p>
             {/if}
         </div>

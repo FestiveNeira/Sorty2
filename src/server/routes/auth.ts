@@ -5,14 +5,15 @@ import { handleError } from '../errors.js';
 import config from '../../utils/appconfig.js';
 import jwt from 'jsonwebtoken';
 import { getAuthUrl, handleCallback } from '../../spotify/spotifyauth.js';
-import { startLibrespot } from '../../player/librespot.js';
+import { startAudioSubprocess } from '../../player/librespot.js';
 import { initAudioStream } from './audio.js';
 
 const router = Router();
 
 router.post('/librespot-event', (req: Request, res: Response) => {
     const { event } = req.body;
-    console.log('librespot event:', event);
+    console.log('Librespot Event:', event);
+    res.json({ success: true });
 });
 
 router.post('/login', (req: Request, res: Response) => {
@@ -56,8 +57,8 @@ router.get('/spotify/callback', async (req: Request, res: Response) => {
     // Start librespot with the new token
     if (config.tokenValidCheck()) {
         // todo might move this out of the callback, feels weird to start a program off a http request
-        startLibrespot(config.spotifyAccessToken)
-            .then(stdout => initAudioStream(stdout))
+        startAudioSubprocess(config.spotifyAccessToken)
+            .then(librespot => initAudioStream(librespot))
             .catch(console.error);
     }
 
