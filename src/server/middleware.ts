@@ -28,7 +28,9 @@ router.use(helmet({
             imgSrc: ["'self'", "data:", "https://i.scdn.co", "https://*.scdn.co", "https://*.spotifycdn.com"],
             mediaSrc: ["'self'", "blob:"],
         }
-    }
+    },
+    crossOriginEmbedderPolicy: true,
+    crossOriginOpenerPolicy: true,
 }));
 router.use((req: Request, res: Response, next) => {
     const isLocal = req.ip === '127.0.0.1' || req.ip === '::1';

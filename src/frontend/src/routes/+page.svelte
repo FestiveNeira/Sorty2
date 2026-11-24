@@ -96,7 +96,7 @@ todo: sort everything in all files, code is a bit disorganized
     "
 >
     <!-- <audio id="player" style="display:none" autoplay></audio> todo: may need but probably not -->
-    <audio id="silent-player" style="display:none" autoplay></audio>
+    <audio id="player" style="display:none" autoplay></audio>
 
     <div class="bg-grid"></div>
 

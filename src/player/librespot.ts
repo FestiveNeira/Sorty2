@@ -47,7 +47,7 @@ export function startAudioSubprocess(accessToken: string): Promise<ChildProcess>
             '--format', 'F32',
             '--device-type', 'computer',
             '--access-token', accessToken,
-            '--backend', 'rodio',
+            '--backend', 'pipe',
             '--disable-audio-cache',
             '--onevent', getEventScriptPath(),
         ], { stdio: 'pipe' });

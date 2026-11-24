@@ -4,7 +4,7 @@ import type { Socket } from 'socket.io-client';
 import PlaybackState from "./PlaybackState.svelte";
 import libraryController from './libraryController';
 import mediaSession from "./mediaSession";
-import audioContext from "./audioContext";
+import audioContext from "./testAudio"; // todo: test line file
 import backendApi from "./backendApi";
 import type { Episode, Track } from '@spotify/web-api-ts-sdk';
 
@@ -62,6 +62,7 @@ async function loadQueue(forceNew?: boolean) {
 
 async function initAudio(audioSocket: Socket) {
     audioContext.initAudio(audioSocket);
+    console.log('test init'); // todo: test
     mediaSession.initMediaSession({ play: play, pause: pause, skip: skipNext, back: skipPrevious, seek: seek });
 }
 async function stopAudio() {
